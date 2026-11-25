@@ -1,4 +1,4 @@
-# Claude Pet
+# Clause
 
 A small cat that lives on your desktop and tells you when any Claude chat has
 **finished**, has a **question** or needs your **approval**. Click it to see all
@@ -40,6 +40,16 @@ patience from the tray icon: *Gets angry after waiting* (1, 2, 5, 10 minutes or 
 **Click a chat:** the chat opens in Claude Desktop and the Claude window is raised
 above whatever covers it (restored if minimised), via `src/focus-claude.ps1`.
 
+**The list:** chats are grouped by project (collapsible; a collapsed project still shows
+its most urgent colour). Type in the search box, or press `/`, to filter by chat or project;
+arrow keys move, Enter opens the first match, Esc clears the search and then closes the list.
+Hover a row for **pin** (stays on top) and **mute** (no sound, chip, badge or angry pet; the chat
+stays listed, dimmed). The **x** clears a finished chat or hides an idle one until it does
+something again; *Clear finished* / *Clear idle* in the footer do it in bulk, with a 15 second
+**Undo**, and *n hidden · Show* brings hidden chats back. The `⋯` button switches grouping,
+sorting (needs me first / most recent) and density (comfortable / compact). Everything is
+remembered in `pet-settings.json`.
+
 ## Run it
 
 ```powershell
@@ -52,7 +62,7 @@ node scripts/hooks.js install --apply    # writes the hooks (backup: settings.js
 
 Hooks are read by chats at start, so restart chats that were already open.
 Remove them any time with `node scripts/hooks.js uninstall --apply`.
-Tray icon: reset position, mute sounds, clear finished, quit.
+Tray icon: reset position, mute sounds, anger patience, clear finished, quit.
 
 ## Start and stop with Claude
 
@@ -77,25 +87,40 @@ running, so the pet stays until you fully quit Claude.
   block or change what Claude does.
 - Only `session_id`, event name, tool *name*, notification type and `cwd` are kept.
   Tool inputs, prompts and messages are dropped before anything is stored or logged.
+- Your list preferences are saved to `pet-settings.json` in the app's user-data folder:
+  the session ids you pinned or muted, and the project folder paths you muted or collapsed.
+  Nothing else about a chat is written to disk.
 - Chat names come from `~/.claude/sessions/*.json` (metadata only, never the `.key` files).
 - `CLAUDE_PET_LOG=1` writes event names and 8-character session ids to `pet-events.log`.
 
 ## Develop
 
 ```powershell
-npm test                                   # state machine, hook receiver
+npm test                                   # state machine, hook receiver, list model, prefs
 npx electron . --shot=out/mood             # renders every mood + the list to out/*.png
 ```
 
-Clicks are tested with real mouse events over the DevTools protocol (unit tests do not
-cover the renderer). Start the pet with the debug port, then drive it:
+`--shot` never writes the real settings. While your own pet is running, give the screenshot
+run its own port and profile (single-instance lock): `$env:CLAUDE_PET_PORT = '47999'` and
+`--user-data-dir=<temp folder>`.
+
+The list logic (filter, group, sort, pins) lives in `src/renderer/view.js` and is unit tested;
+the DOM around it is not. Clicks and keys are tested with real input events over the DevTools
+protocol. Start the pet with the debug port, then drive it:
 
 ```powershell
 $env:CLAUDE_PET_LOG = '1'; node_modules\electron\dist\electron.exe . --remote-debugging-port=9229
 node scripts/ui-test.mjs open     # click the cat; reports how often the list redraws (must be 0)
 node scripts/ui-test.mjs x 0      # click the x of row 0
 node scripts/ui-test.mjs row 0    # click row 0; the log (pet-events.log) must show jump ... focused
+node scripts/ui-test.mjs keys Slash b o n   # press keys ('Slash' = /) and print what the list shows
+node scripts/ui-test.mjs act pin 1          # hover row 1, click its pin (also: mute, x)
+node scripts/ui-test.mjs chain '#opts-toggle' '[data-opt=density]'   # click several elements in one run
+node scripts/ui-test.mjs click '#undo'      # click anything; `view` prints the list, `hover` hovers
 ```
+
+The panel closes when the window loses focus, so every command reopens it first. Chats you
+POST to the hook receiver by hand disappear again after about a minute (they are not in the registry).
 
 ## Known limits
 

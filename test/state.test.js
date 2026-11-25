@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { SessionStore, nextState } = require('../src/state');
+const { SessionStore, nextState, projectKey } = require('../src/state');
 
 const SID = 'aaaaaaaa-1111-2222-3333-444444444444';
 const hook = (hook_event_name, extra = {}) => ({ session_id: SID, cwd: 'C:\\x\\proj', hook_event_name, ...extra });
@@ -140,6 +140,120 @@ test('snapshot counts each kind of notification', () => {
   st.applyHook({ ...hook('PermissionRequest', { tool_name: 'Bash' }), session_id: 'd' });
   st.applyHook({ ...hook('UserPromptSubmit'), session_id: 'e' });
   assert.deepEqual(st.snapshot().types, { approval: 1, question: 1, done: 2 });
+});
+
+const at = (id, cwd, event, extra) => ({ session_id: id, cwd, hook_event_name: event, ...extra });
+
+test('projectKey is one key for case, slash style and trailing slash', () => {
+  assert.equal(projectKey('C:\\Xampp\\htdocs\\Site\\'), 'c:/xampp/htdocs/site');
+  assert.equal(projectKey('c:/xampp/htdocs/site'), 'c:/xampp/htdocs/site');
+  assert.equal(projectKey(''), '');
+  assert.equal(projectKey(undefined), '');
+});
+
+test('muted chats and projects never alert, count as waiting or move the pet', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now, impatientMs: 1000 });
+  st.setMuted({ ids: ['a'], projects: ['C:\\Sites\\Loud'] });
+  st.applyHook(at('a', 'C:\\x\\one', 'PermissionRequest', { tool_name: 'Bash' }));
+  st.applyHook(at('b', 'c:/sites/loud/', 'Stop'));
+  st.applyHook(at('c', 'C:\\x\\three', 'UserPromptSubmit'));
+  assert.deepEqual(st.takeAlerts(), []);
+  c.advance(5000);
+  assert.equal(st.tickOverdue(), false);
+  const snap = st.snapshot();
+  assert.equal(snap.sessions.length, 3); // still listed
+  assert.deepEqual(snap.sessions.filter((s) => s.muted).map((s) => s.id).sort(), ['a', 'b']);
+  assert.equal(snap.attention, 0);
+  assert.deepEqual(snap.types, { approval: 0, question: 0, done: 0 });
+  assert.equal(snap.overdue, false);
+  assert.equal(snap.mood, 'working');
+  // un-muting makes the chat count again
+  st.setMuted({});
+  assert.equal(st.snapshot().mood, 'approval');
+});
+
+test('x on a row: finished goes idle, idle is hidden, a busy chat is untouched', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(at('done', 'C:\\x\\a', 'Stop'));
+  st.applyHook(at('idle', 'C:\\x\\b', 'SessionStart'));
+  st.applyHook(at('busy', 'C:\\x\\c', 'UserPromptSubmit'));
+  assert.equal(st.dismissRow('busy'), false);
+  assert.equal(st.dismissRow('done'), true);
+  assert.equal(st.snapshot().sessions.find((s) => s.id === 'done').state, 'idle');
+  assert.equal(st.dismissRow('idle'), true);
+  const snap = st.snapshot();
+  assert.deepEqual(snap.sessions.map((s) => s.id).sort(), ['busy', 'done']);
+  assert.equal(snap.hiddenCount, 1);
+  // doing anything brings a hidden chat back
+  st.applyHook(at('idle', 'C:\\x\\b', 'UserPromptSubmit'));
+  assert.equal(st.snapshot().hiddenCount, 0);
+  assert.equal(st.snapshot().sessions.length, 3);
+});
+
+test('jumping to a chat never hides it and leaves no undo', () => {
+  const st = new SessionStore();
+  st.applyHook(at('i', 'C:\\x\\a', 'SessionStart'));
+  assert.equal(st.dismiss('i'), false);
+  assert.equal(st.snapshot().sessions.length, 1);
+  assert.equal(st.snapshot().undoable, false);
+  st.applyHook(at('d', 'C:\\x\\b', 'Stop'));
+  assert.equal(st.dismiss('d'), true);
+  assert.equal(st.snapshot().undoable, false);
+});
+
+test('bulk clears work on a whole kind and undo restores the batch', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(at('d1', 'C:\\x\\a', 'Stop'));
+  c.advance(1000);
+  st.applyHook(at('d2', 'C:\\x\\a', 'Stop'));
+  st.applyHook(at('i1', 'C:\\x\\b', 'SessionStart'));
+  st.applyHook(at('w', 'C:\\x\\c', 'UserPromptSubmit'));
+  assert.deepEqual(st.snapshot().counts, { done: 2, idle: 1 });
+  const since = st.snapshot().sessions.find((s) => s.id === 'd1').since;
+
+  assert.equal(st.dismissAllDone(), true);
+  let snap = st.snapshot();
+  assert.deepEqual(snap.counts, { done: 0, idle: 3 });
+  assert.equal(snap.undoable, true);
+  assert.equal(snap.undoCount, 2);
+  assert.equal(st.undo(), true);
+  snap = st.snapshot();
+  assert.deepEqual(snap.counts, { done: 2, idle: 1 });
+  assert.equal(snap.sessions.find((s) => s.id === 'd1').since, since); // waiting time is kept
+  assert.equal(snap.undoable, false);
+
+  assert.equal(st.dismissAllIdle(), true);
+  assert.equal(st.snapshot().hiddenCount, 1);
+  assert.equal(st.undo(), true);
+  assert.equal(st.snapshot().hiddenCount, 0);
+  assert.equal(st.dismissAllIdle(), true);
+  assert.equal(st.unhideAll(), true);
+  assert.equal(st.snapshot().hiddenCount, 0);
+});
+
+test('undo expires, skips chats that changed and raises no alerts', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now, undoMs: 10_000 });
+  st.applyHook(at('d1', 'C:\\x\\a', 'Stop'));
+  st.applyHook(at('d2', 'C:\\x\\b', 'Stop'));
+  st.takeAlerts();
+  st.dismissAllDone();
+  st.applyHook(at('d1', 'C:\\x\\a', 'UserPromptSubmit')); // d1 is busy again
+  st.takeAlerts();
+  assert.equal(st.undo(), true);
+  assert.deepEqual(st.takeAlerts(), []);
+  const snap = st.snapshot();
+  assert.equal(snap.sessions.find((s) => s.id === 'd1').state, 'working');
+  assert.equal(snap.sessions.find((s) => s.id === 'd2').state, 'done');
+
+  st.dismissAllDone();
+  c.advance(10_001);
+  assert.equal(st.snapshot().undoable, false);
+  assert.equal(st.undo(), false);
+  assert.equal(st.snapshot().sessions.find((s) => s.id === 'd2').state, 'idle');
 });
 
 test('dismiss only clears "done"', () => {

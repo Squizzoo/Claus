@@ -4,6 +4,12 @@
 //   node scripts/ui-test.mjs open        click the cat, report how the list behaves
 //   node scripts/ui-test.mjs row [n]     click row n (default 0) and report
 //   node scripts/ui-test.mjs x [n]       click the x of row n
+//   node scripts/ui-test.mjs view        print what the list shows (groups, rows, search box, footer, focus)
+//   node scripts/ui-test.mjs keys <k>... press keys ('Slash' for /, plus letters, ArrowDown, Escape, Enter...)
+//   node scripts/ui-test.mjs act <pin|mute|x> [row]   hover a row and click that button
+//   node scripts/ui-test.mjs click <selector> [n]     click an element; hover <selector> [n] hovers it
+//   node scripts/ui-test.mjs chain <selector>...      click several elements in one run (e.g. '#opts-toggle' then an option)
+// The panel closes when the window loses focus, so commands that click or type open it first.
 //
 // Output is plain facts (mutation counts, rows, nojump rows) so a human can read it.
 const PORT = Number(process.env.CDP_PORT) || 9229;
@@ -38,6 +44,43 @@ const click = async (x, y) => {
 const center = (sel, n = 0) => evaluate(`(() => { const e = document.querySelectorAll(${JSON.stringify(sel)})[${n}]; if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, w: r.width, h: r.height }; })()`);
 const mutations = (ms) => evaluate(`new Promise((res) => { let n = 0; const o = new MutationObserver((l) => { n += l.length; }); o.observe(document.getElementById('list'), { childList: true, subtree: true }); setTimeout(() => { o.disconnect(); res(n); }, ${ms}); })`);
 const facts = () => evaluate(`({ expanded: !document.getElementById('panel').hidden, rows: document.querySelectorAll('.row').length, nojump: document.querySelectorAll('.row.nojump').length, dismissButtons: document.querySelectorAll('.row .x').length, w: innerWidth, h: innerHeight })`);
+// What the list shows right now, as plain text: group headers, rows, the search box, the footer, and what has focus.
+const view = () => evaluate(`(() => {
+  const $ = (id) => document.getElementById(id);
+  const a = document.activeElement;
+  return {
+    expanded: !$('panel').hidden,
+    query: $('search').value,
+    count: $('count').textContent,
+    items: [...document.querySelectorAll('#list .group, #list .row')].map((e) => e.classList.contains('group')
+      ? '[' + e.querySelector('.label').textContent + ' ' + e.querySelector('.n').textContent + (e.getAttribute('aria-expanded') === 'false' ? ' collapsed' : '') + (e.classList.contains('muted') ? ' muted' : '') + ']'
+      : e.querySelector('.name').textContent.trim() + ' | ' + e.querySelector('.sub').textContent + (e.querySelector('.x') ? ' | x' : '') + (e.classList.contains('muted') ? ' | muted' : '')),
+    emptyNote: $('empty').hidden ? '' : $('empty').textContent,
+    footer: $('footer').hidden ? '' : [...$('footer').querySelectorAll('button, #undo-text')].filter((b) => !b.closest('[hidden]') && !b.hidden).map((b) => b.textContent).join(' / '),
+    focus: a ? (a.id || a.className || a.tagName) + (a.dataset && a.dataset.id ? ' ' + a.textContent.slice(0, 20) : '') : null,
+    h: innerHeight,
+  };
+})()`);
+const VK = { ArrowDown: 40, ArrowUp: 38, Enter: 13, Escape: 27, Delete: 46, '/': 191, ' ': 32 };
+const CODE = { '/': 'Slash', ' ': 'Space' };
+const press = async (name) => {
+  const key = name === 'Slash' ? '/' : name; // 'Slash' because Git Bash rewrites a bare "/" argument into a path
+  const vk = VK[key] ?? key.toUpperCase().charCodeAt(0);
+  const code = CODE[key] ?? (/^[a-z]$/i.test(key) ? `Key${key.toUpperCase()}` : key); // CDP needs the physical key too
+  if (key.length === 1) await send('Input.dispatchKeyEvent', { type: 'keyDown', key, code, text: key, windowsVirtualKeyCode: vk });
+  else await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key, code, windowsVirtualKeyCode: vk });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk });
+  await sleep(250);
+};
+
+// The pet closes its panel when the window loses focus (like a real click elsewhere), so open it first.
+const ensureOpen = async () => {
+  if (!(await facts()).expanded) {
+    const c = await center('#pet');
+    await click(c.x, c.y);
+    await sleep(600);
+  }
+};
 
 if (cmd === 'open') {
   if (!(await facts()).expanded) {
@@ -47,6 +90,57 @@ if (cmd === 'open') {
   }
   console.log('after clicking the cat:', JSON.stringify(await facts()));
   console.log('list DOM mutations in 1 s :', await mutations(1000), '(a calm list is 0)');
+} else if (cmd === 'view') {
+  console.log(JSON.stringify(await view(), null, 1));
+} else if (cmd === 'click') {
+  // click <selector> [n]: a real click on any element, e.g. '#opts-toggle', '.group', '.row .act[data-act=pin]'
+  const [, sel, n = '0'] = process.argv.slice(2);
+  await ensureOpen();
+  const c = await center(sel, Number(n));
+  if (!c) throw new Error(`no ${sel} #${n}`);
+  await click(c.x, c.y);
+  await sleep(500);
+  console.log(JSON.stringify(await view(), null, 1));
+} else if (cmd === 'chain') {
+  // chain <selector> [<selector> ...]: click each in turn within one run, e.g. '#opts-toggle' '[data-opt=density]'
+  await ensureOpen();
+  for (const sel of process.argv.slice(3)) {
+    const c = await center(sel);
+    if (!c || !c.w) throw new Error(`${sel} is not visible`);
+    await click(c.x, c.y);
+    await sleep(500);
+  }
+  console.log(JSON.stringify(await view(), null, 1));
+  console.log('list class:', await evaluate(`document.getElementById('list').className || '(comfortable)'`), '| groups:', await evaluate(`document.querySelectorAll('.group').length`), '| first row height:', await evaluate(`Math.round(document.querySelector('.row').getBoundingClientRect().height)`));
+} else if (cmd === 'hover') {
+  // hover <selector> [n]: move the mouse over an element (shows the pin and mute buttons of a row)
+  const [, sel, n = '0'] = process.argv.slice(2);
+  await ensureOpen();
+  const c = await center(sel, Number(n));
+  if (!c) throw new Error(`no ${sel} #${n}`);
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c.x, y: c.y });
+  await sleep(300);
+  console.log('visible hover buttons:', await evaluate(`[...document.querySelectorAll('.hover-acts')].filter((e) => getComputedStyle(e).display !== 'none').length`));
+} else if (cmd === 'act') {
+  // act <pin|mute|x> [row]: hover the row, then click that button on it (pin and mute only show on hover)
+  const [, name, r = '0'] = process.argv.slice(2);
+  await ensureOpen();
+  const row = await center('.row', Number(r));
+  if (!row) throw new Error(`no row #${r}`);
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: row.x, y: row.y });
+  await sleep(250);
+  const b = await evaluate(`(() => { const e = document.querySelectorAll('.row')[${Number(r)}].querySelector('[data-act=${JSON.stringify(name)}]'); if (!e) return null; const q = e.getBoundingClientRect(); return { x: q.x + q.width / 2, y: q.y + q.height / 2 }; })()`);
+  if (!b) throw new Error(`row #${r} has no ${name} button`);
+  await click(b.x, b.y);
+  await sleep(600);
+  console.log(JSON.stringify(await view(), null, 1));
+} else if (cmd === 'keys') {
+  // keys <key> [<key> ...]: press real keys, e.g. '/' then 'b' 'o' 'n' 'ArrowDown' 'Escape'
+  await ensureOpen();
+  // start every run from a clean search box with nothing focused, so runs do not depend on each other
+  await evaluate(`(() => { const s = document.getElementById('search'); s.value = ''; s.dispatchEvent(new Event('input')); document.activeElement.blur(); })()`);
+  for (const k of process.argv.slice(3)) await press(k);
+  console.log(JSON.stringify(await view(), null, 1));
 } else if (cmd === 'row' || cmd === 'x') {
   const sel = cmd === 'row' ? '.row' : '.row .x';
   const c = await center(sel, Number(arg));

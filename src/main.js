@@ -7,10 +7,12 @@ const { readRegistry } = require('./registry');
 const { createServer, DEFAULT_PORT } = require('./server');
 const { jumpUrl } = require('./jump');
 const { focusClaude } = require('./focus');
+const prefsLib = require('./prefs');
 
 const PORT = Number(process.env.CLAUDE_PET_PORT) || DEFAULT_PORT;
 const PET = 150; // collapsed window: the pet only
 const PANEL_W = 300; // expanded window width
+const MAX_PANEL = 480; // tallest list the window will grow to
 const MARGIN = 16;
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -19,7 +21,7 @@ const store = new SessionStore();
 let win = null;
 let tray = null;
 let server = null;
-let settings = { x: null, y: null, muted: false, impatientMin: 2 }; // impatientMin 0 = never angry
+let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS }; // impatientMin 0 = never angry
 let petPos = { x: 0, y: 0 }; // top-left of the pet, the source of truth for position
 let panelH = 0; // extra height wanted by the list (0 = collapsed)
 let layout = { side: 'right', vertical: 'up' };
@@ -33,9 +35,17 @@ function loadSettings() {
   } catch {
     /* first run */
   }
+  settings.prefs = prefsLib.sanitize(settings.prefs);
+  applyPrefs();
+}
+/** Muted chats and projects live in the list preferences; the store needs them to stay quiet. */
+function applyPrefs() {
+  store.setMuted({ ids: settings.prefs.mutedChats, projects: settings.prefs.mutedProjects });
 }
 let saveTimer = null;
+const SHOT_RUN = process.argv.some((a) => a.startsWith('--shot=')); // screenshots must never touch the real settings
 function saveSettings() {
+  if (SHOT_RUN) return;
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
@@ -143,7 +153,7 @@ function createWindow() {
 
 function push() {
   if (!win || win.isDestroyed()) return;
-  win.webContents.send('state', { ...store.snapshot(), muted: settings.muted, layout, expanded: panelH > 0 });
+  win.webContents.send('state', { ...store.snapshot(), muted: settings.muted, prefs: settings.prefs, layout, expanded: panelH > 0 });
   const alerts = store.takeAlerts();
   if (alerts.length && !settings.muted) win.webContents.send('alert', alerts.map((a) => a.state));
 }
@@ -161,12 +171,12 @@ function setPanel(extra) {
 // ---------- IPC ----------
 ipcMain.on('panel-height', (_e, h) => {
   if (typeof h !== 'number' || !Number.isFinite(h)) return;
-  if (panelH > 0) setPanel(Math.min(h, 420));
+  if (panelH > 0) setPanel(Math.min(h, MAX_PANEL));
 });
 ipcMain.on('toggle-panel', (_e, wantedHeight) => {
   debugLog(`ipc toggle-panel (panel ${panelH > 0 ? 'open' : 'closed'})`);
   if (panelH > 0) setPanel(0);
-  else setPanel(Math.min(Number(wantedHeight) || 120, 420));
+  else setPanel(Math.min(Number(wantedHeight) || 120, MAX_PANEL));
 });
 ipcMain.on('collapse', () => setPanel(0));
 
@@ -218,16 +228,41 @@ ipcMain.on('jump', (_e, id) => {
   debugLog(`ipc jump ${String(id).slice(0, 8)}`);
   jumpTo(String(id));
 });
+// The x on a row: finished -> idle, idle -> hidden. Both can be undone.
 ipcMain.on('dismiss', (_e, id) => {
   debugLog(`ipc dismiss ${String(id).slice(0, 8)}`);
-  if (store.dismiss(String(id))) push();
+  if (store.dismissRow(String(id))) push();
 });
+ipcMain.on('clear-finished', () => {
+  debugLog('ipc clear-finished');
+  if (store.dismissAllDone()) push();
+});
+ipcMain.on('clear-idle', () => {
+  debugLog('ipc clear-idle');
+  if (store.dismissAllIdle()) push();
+});
+ipcMain.on('undo', () => {
+  debugLog('ipc undo');
+  if (store.undo()) push();
+});
+ipcMain.on('unhide', () => {
+  debugLog('ipc unhide');
+  if (store.unhideAll()) push();
+});
+// List preferences (grouping, sort, density, collapsed groups, pins, mutes): validated, then saved.
+function updatePrefs(patch) {
+  settings.prefs = prefsLib.merge(settings.prefs, patch);
+  applyPrefs();
+  saveSettings();
+  push();
+}
+ipcMain.on('set-prefs', (_e, patch) => updatePrefs(patch));
 
 // ---------- tray ----------
 function buildTray() {
   const img = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'tray.png'));
   tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img);
-  tray.setToolTip('Claude Pet');
+  tray.setToolTip('Clause');
   const rebuild = () =>
     tray.setContextMenu(
       Menu.buildFromTemplate([
@@ -273,7 +308,7 @@ app.whenReady().then(async () => {
   try {
     await server.listen();
   } catch (err) {
-    console.error(`claude-pet: cannot listen on 127.0.0.1:${PORT} (${err.code}). Is another pet running?`);
+    console.error(`clause: cannot listen on 127.0.0.1:${PORT} (${err.code}). Is another pet running?`);
     app.quit();
     return;
   }
@@ -300,7 +335,7 @@ app.whenReady().then(async () => {
   screen.on('display-metrics-changed', () => { petPos = clampToDisplays(petPos.x, petPos.y); applyBounds(); push(); });
   // Dev aid: `electron . --shot=out.png` renders the current state to a PNG, then quits.
   const shot = process.argv.find((a) => a.startsWith('--shot='));
-  if (shot) require('./shot').run(win, shot.slice(7), { store, setPanel, push });
+  if (shot) require('./shot').run(win, shot.slice(7), { store, setPanel, push, setPrefs: updatePrefs });
 });
 
 app.on('second-instance', () => win && win.showInactive());
