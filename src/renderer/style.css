@@ -86,6 +86,34 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: transparen
 .mood-approval #bubble-shape { fill: #d8453b; }
 @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3px) rotate(-1.5deg); } 75% { transform: translateX(3px) rotate(1.5deg); } }
 
+/* angry: you kept a chat waiting too long. Overrides the face of whatever the mood is. */
+#vein { opacity: 0; transform-box: fill-box; transform-origin: center; }
+#vein path { fill: none; stroke: #d8312b; stroke-width: 3.6; stroke-linecap: round; }
+.angry { --body: #ee8062; }
+.angry .eyes { display: none !important; }
+.angry .eyes-angry { display: block !important; }
+.angry .cheek { fill: #e8574b; opacity: .6; }
+.angry #mouth { d: path("M66 112 Q75 102 84 112"); }
+.angry #bob { animation: rage 0.34s ease-in-out infinite; }
+.angry #tilt { animation: none; }
+.angry #tail { animation: wag 0.25s ease-in-out infinite; }
+.angry #vein { opacity: 1; animation: throb 0.7s ease-in-out infinite; }
+.angry #bubble { opacity: 1; animation: wiggle 0.45s ease-in-out infinite; }
+.angry #bubble-shape { fill: #c8281f; }
+.angry #bubble-text { font-size: 22px; }
+@keyframes rage { 0%, 100% { transform: translate(0, 0) rotate(0); } 25% { transform: translate(-2.5px, 0) rotate(-1.8deg); } 75% { transform: translate(2.5px, 0) rotate(1.8deg); } }
+@keyframes throb { 0%, 100% { transform: scale(0.85); } 50% { transform: scale(1.2); } }
+
+/* several kinds of notification at once: one round chip per kind instead of one speech bubble */
+#chips { position: absolute; top: 2px; right: 2px; display: flex; gap: 3px; z-index: 2; pointer-events: none; }
+.chip { position: relative; width: 33px; height: 33px; border-radius: 50%; background: var(--c); border: 2.5px solid #fff; color: #fff; font: 700 18px/28px "Segoe UI", system-ui, sans-serif; text-align: center; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.32); animation: pop 0.35s cubic-bezier(.3, 1.6, .5, 1) both, chipbob 1.8s ease-in-out 0.4s infinite; animation-delay: 0s, calc(var(--i) * -0.45s); }
+.chip small { position: absolute; right: -6px; bottom: -6px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: #fff; color: #333; font: 700 11px/17px "Segoe UI", system-ui, sans-serif; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+.chip.k-approval { --c: #d8453b; } .chip.k-question { --c: #3b7dd8; } .chip.k-done { --c: #3fa66a; }
+.chip.late { animation: pop 0.35s both, chipshake 0.4s ease-in-out 0.4s infinite; box-shadow: 0 0 0 3px #d8312b66, 0 2px 6px rgba(0, 0, 0, 0.32); }
+@keyframes pop { from { transform: scale(0); } to { transform: scale(1); } }
+@keyframes chipbob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes chipshake { 0%, 100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
+
 /* ---------- badge ---------- */
 #badge { position: absolute; left: 6px; top: 28px; min-width: 26px; height: 26px; padding: 0 7px; border-radius: 13px; background: var(--accent); color: #fff; font-weight: 700; font-size: 14px; line-height: 26px; text-align: center; border: 2px solid #fff; z-index: 2; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
 #badge.s-done { background: #3fa66a; } #badge.s-question { background: #3b7dd8; } #badge.s-approval { background: #d8453b; }
@@ -99,7 +127,10 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: transparen
 #list { list-style: none; overflow-y: auto; border-radius: 0 0 12px 12px; flex: 1 1 auto; min-height: 0; }
 #empty { padding: 18px 14px; color: var(--panel-dim); border-radius: 0 0 12px 12px; }
 #list::-webkit-scrollbar { width: 6px; } #list::-webkit-scrollbar-thumb { background: #ffffff30; border-radius: 3px; }
-.row { display: grid; grid-template-columns: 12px 1fr auto; gap: 10px; align-items: center; padding: 9px 12px 9px 14px; height: 54px; cursor: pointer; }
+#list { overflow-x: hidden; }
+.row { display: grid; grid-template-columns: 12px minmax(0, 1fr) 24px; gap: 10px; align-items: center; padding: 9px 12px 9px 14px; height: 54px; cursor: pointer; }
+.row > div { min-width: 0; }
+.row.late .sub { color: #ff8e84; font-weight: 600; }
 .row:hover, .row:focus-visible { background: #ffffff12; outline: none; }
 .row.nojump { cursor: default; opacity: .75; }
 .dot { width: 10px; height: 10px; border-radius: 50%; background: #5b5f66; }

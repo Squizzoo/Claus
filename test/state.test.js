@@ -99,6 +99,49 @@ test('an approval is cleared by the registry only once the chat runs again', () 
   assert.equal(st.snapshot().mood, 'working');
 });
 
+test('a chat waiting on you too long makes the pet angry, once', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now, impatientMs: 60_000 });
+  st.applyHook(hook('PermissionRequest', { tool_name: 'Bash' }));
+  st.takeAlerts();
+  c.advance(59_000);
+  assert.equal(st.tickOverdue(), false);
+  assert.equal(st.snapshot().overdue, false);
+  c.advance(2_000);
+  assert.equal(st.tickOverdue(), true);
+  assert.equal(st.snapshot().overdue, true);
+  assert.equal(st.snapshot().sessions[0].overdue, true);
+  assert.deepEqual(st.takeAlerts(), [{ id: SID, state: 'overdue' }]);
+  assert.equal(st.tickOverdue(), false); // no repeat chime
+  st.applyHook(hook('PostToolUse', { tool_name: 'Bash' })); // you answered
+  assert.equal(st.snapshot().overdue, false);
+});
+
+test('only questions and approvals can go overdue; 0 means never', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now, impatientMs: 1000 });
+  st.applyHook(hook('Stop'));
+  c.advance(10_000);
+  assert.equal(st.tickOverdue(), false);
+  assert.equal(st.snapshot().overdue, false);
+
+  const calm = new SessionStore({ now: c.now, impatientMs: 0 });
+  calm.applyHook(hook('PreToolUse', { tool_name: 'AskUserQuestion' }));
+  c.advance(999_999);
+  assert.equal(calm.tickOverdue(), false);
+  assert.equal(calm.snapshot().overdue, false);
+});
+
+test('snapshot counts each kind of notification', () => {
+  const st = new SessionStore();
+  st.applyHook({ ...hook('Stop'), session_id: 'a' });
+  st.applyHook({ ...hook('Stop'), session_id: 'b' });
+  st.applyHook({ ...hook('PreToolUse', { tool_name: 'AskUserQuestion' }), session_id: 'c' });
+  st.applyHook({ ...hook('PermissionRequest', { tool_name: 'Bash' }), session_id: 'd' });
+  st.applyHook({ ...hook('UserPromptSubmit'), session_id: 'e' });
+  assert.deepEqual(st.snapshot().types, { approval: 1, question: 1, done: 2 });
+});
+
 test('dismiss only clears "done"', () => {
   const st = new SessionStore();
   st.applyHook(hook('Stop'));

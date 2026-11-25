@@ -59,12 +59,37 @@ function basename(p) {
   return parts[parts.length - 1] || String(p);
 }
 
+const WAITING_ON_YOU = new Set(['question', 'approval']);
+const DEFAULT_IMPATIENT_MS = 120_000;
+
 class SessionStore {
-  constructor({ now = Date.now } = {}) {
+  constructor({ now = Date.now, impatientMs = DEFAULT_IMPATIENT_MS } = {}) {
     this.now = now;
     this.sessions = new Map();
     this.registrySynced = false;
     this.alerts = []; // pending {id, state} for the UI to chime
+    this.impatientMs = impatientMs; // 0 = never gets angry
+  }
+
+  /** A chat that asked you something and has waited longer than the patience. */
+  _isOverdue(s) {
+    return this.impatientMs > 0 && WAITING_ON_YOU.has(s.state) && this.now() - s.since >= this.impatientMs;
+  }
+
+  /**
+   * Call periodically. Returns true when a chat just crossed the patience
+   * threshold (the pet turns angry once, with one 'overdue' alert per chat).
+   */
+  tickOverdue() {
+    let crossed = false;
+    for (const s of this.sessions.values()) {
+      if (this._isOverdue(s) && !s.lateNotified) {
+        s.lateNotified = true;
+        this.alerts.push({ id: s.id, state: 'overdue' });
+        crossed = true;
+      }
+    }
+    return crossed;
   }
 
   _get(id) {
@@ -92,6 +117,7 @@ class SessionStore {
     if (s.state === state) return false;
     s.state = state;
     s.since = this.now();
+    s.lateNotified = false;
     if (ATTENTION.has(state)) this.alerts.push({ id: s.id, state });
     return true;
   }
@@ -186,19 +212,28 @@ class SessionStore {
     );
     let mood = 'idle';
     let attention = 0;
+    let overdue = false;
+    const types = { approval: 0, question: 0, done: 0 }; // chats per kind of notification
     for (const s of list) {
       if (PRIORITY[s.state] > PRIORITY[mood]) mood = s.state;
-      if (ATTENTION.has(s.state)) attention++;
+      if (ATTENTION.has(s.state)) {
+        attention++;
+        types[s.state]++;
+      }
+      if (this._isOverdue(s)) overdue = true;
     }
     return {
       mood,
       attention,
+      overdue,
+      types,
       sessions: list.map((s) => ({
         id: s.id,
         name: s.name || '(untitled)',
         folder: basename(s.cwd),
         state: s.state,
         since: s.since,
+        overdue: this._isOverdue(s),
         jumpable: Boolean(s.hostSessionId),
       })),
     };
@@ -211,4 +246,4 @@ class SessionStore {
   }
 }
 
-module.exports = { SessionStore, nextState, PRIORITY, ATTENTION, SESSION_ID, basename };
+module.exports = { SessionStore, nextState, PRIORITY, ATTENTION, SESSION_ID, DEFAULT_IMPATIENT_MS, basename };

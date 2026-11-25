@@ -6,6 +6,7 @@ const { SessionStore } = require('./state');
 const { readRegistry } = require('./registry');
 const { createServer, DEFAULT_PORT } = require('./server');
 const { jumpUrl } = require('./jump');
+const { focusClaude } = require('./focus');
 
 const PORT = Number(process.env.CLAUDE_PET_PORT) || DEFAULT_PORT;
 const PET = 150; // collapsed window: the pet only
@@ -18,7 +19,7 @@ const store = new SessionStore();
 let win = null;
 let tray = null;
 let server = null;
-let settings = { x: null, y: null, muted: false };
+let settings = { x: null, y: null, muted: false, impatientMin: 2 }; // impatientMin 0 = never angry
 let petPos = { x: 0, y: 0 }; // top-left of the pet, the source of truth for position
 let panelH = 0; // extra height wanted by the list (0 = collapsed)
 let layout = { side: 'right', vertical: 'up' };
@@ -47,13 +48,16 @@ function saveSettings() {
 }
 
 // Opt-in (CLAUDE_PET_LOG=1): one line per hook event, event name and short ids only.
-function logEvent(p) {
+function debugLog(text) {
+  if (!process.env.CLAUDE_PET_LOG) return;
   try {
-    const line = `${new Date().toISOString()} ${p.hook_event_name} ${(p.session_id || '').slice(0, 8)}${p.tool_name ? ' ' + p.tool_name : ''}${p.notification_type ? ' ' + p.notification_type : ''}\n`;
-    fs.appendFileSync(path.join(app.getPath('userData'), 'pet-events.log'), line);
+    fs.appendFileSync(path.join(app.getPath('userData'), 'pet-events.log'), `${new Date().toISOString()} ${text}\n`);
   } catch {
     /* logging must never break the pet */
   }
+}
+function logEvent(p) {
+  debugLog(`${p.hook_event_name} ${(p.session_id || '').slice(0, 8)}${p.tool_name ? ' ' + p.tool_name : ''}${p.notification_type ? ' ' + p.notification_type : ''}`);
 }
 
 // ---------- geometry ----------
@@ -101,6 +105,7 @@ function applyBounds() {
 // ---------- window ----------
 function createWindow() {
   loadSettings();
+  store.impatientMs = Math.max(0, Number(settings.impatientMin) || 0) * 60_000;
   petPos = settings.x == null ? defaultPos() : clampToDisplays(settings.x, settings.y);
   win = new BrowserWindow({
     ...computeBounds(),
@@ -180,13 +185,29 @@ ipcMain.on('drag-end', () => {
   applyBounds();
 });
 
-ipcMain.on('jump', (_e, id) => {
-  const url = jumpUrl(store.hostIdOf(String(id)));
-  if (!url) return;
-  shell.openExternal(url).catch(() => {});
-  store.dismiss(String(id));
+/** Opens a chat in Claude Desktop and raises the window above whatever covers it. */
+async function jumpTo(id) {
+  const url = jumpUrl(store.hostIdOf(id));
+  if (!url) {
+    debugLog(`jump ${id.slice(0, 8)} refused: no desktop session id`);
+    return false;
+  }
+  store.dismiss(id);
   setPanel(0);
   push();
+  // Raise first (it waits for a hidden/minimised window to appear), open the chat at the same time.
+  const raised = focusClaude();
+  try {
+    await shell.openExternal(url);
+    debugLog(`jump ${id.slice(0, 8)} opened`);
+  } catch (err) {
+    debugLog(`jump ${id.slice(0, 8)} openExternal failed: ${err.message}`);
+  }
+  debugLog(`jump ${id.slice(0, 8)} focus: ${await raised}`);
+  return true;
+}
+ipcMain.on('jump', (_e, id) => {
+  jumpTo(String(id));
 });
 ipcMain.on('dismiss', (_e, id) => {
   if (store.dismiss(String(id))) push();
@@ -203,6 +224,21 @@ function buildTray() {
         { label: 'Show pet', click: () => win && (win.showInactive(), win.setAlwaysOnTop(true, 'floating')) },
         { label: 'Reset position', click: () => { petPos = defaultPos(); settings.x = petPos.x; settings.y = petPos.y; saveSettings(); applyBounds(); } },
         { label: 'Mute sounds', type: 'checkbox', checked: settings.muted, click: (i) => { settings.muted = i.checked; saveSettings(); push(); } },
+        {
+          label: 'Gets angry after waiting',
+          submenu: [[1, '1 minute'], [2, '2 minutes'], [5, '5 minutes'], [10, '10 minutes'], [0, 'Never']].map(([min, label]) => ({
+            label,
+            type: 'radio',
+            checked: settings.impatientMin === min,
+            click: () => {
+              settings.impatientMin = min;
+              store.impatientMs = min * 60_000;
+              saveSettings();
+              store.tickOverdue();
+              push();
+            },
+          })),
+        },
         { label: 'Clear finished', click: () => { store.dismissAllDone(); push(); } },
         { type: 'separator' },
         { label: 'Quit', click: () => app.quit() },
@@ -237,6 +273,18 @@ app.whenReady().then(async () => {
   };
   poll();
   setInterval(poll, 2000);
+  setInterval(() => store.tickOverdue() && push(), 5000); // the pet turns angry when you keep it waiting
+
+  // Dev aid: CLAUDE_PET_SELFTEST_JUMP=<part of a chat name> jumps to that chat 3 s after start,
+  // exactly like clicking its row, and logs the result (needs CLAUDE_PET_LOG=1).
+  if (process.env.CLAUDE_PET_SELFTEST_JUMP) {
+    setTimeout(() => {
+      const want = process.env.CLAUDE_PET_SELFTEST_JUMP.toLowerCase();
+      const hit = store.snapshot().sessions.find((s) => s.name.toLowerCase().includes(want));
+      if (hit) jumpTo(hit.id);
+      else debugLog(`selftest: no chat matching "${want}"`);
+    }, 3000);
+  }
 
   screen.on('display-removed', () => { petPos = clampToDisplays(petPos.x, petPos.y); applyBounds(); });
   screen.on('display-metrics-changed', () => { petPos = clampToDisplays(petPos.x, petPos.y); applyBounds(); });

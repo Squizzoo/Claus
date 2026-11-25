@@ -26,6 +26,20 @@ click a chat ──▶ claude://code/continue?session=local_<id> ──▶ Claud
 
 The badge counts chats waiting for you. The pet shows the most urgent state.
 
+**Several kinds at once:** when different notifications are waiting together
+(for example an approval, a question and a finished chat), the speech bubble is
+replaced by one round chip per kind, `!` `?` `✓`, each with a small count when
+more than one chat has that kind.
+
+**Impatient pet:** if a chat has been waiting on you (a question or an approval)
+for longer than the patience, the pet turns **angry**: red face, frowning brows,
+an anger mark, a shaking body, `!!` / `?!`, one cross chime, and the chat's row in
+the list says how long it has waited. Answering it calms the pet down. Change the
+patience from the tray icon: *Gets angry after waiting* (1, 2, 5, 10 minutes or never; default 2).
+
+**Click a chat:** the chat opens in Claude Desktop and the Claude window is raised
+above whatever covers it (restored if minimised), via `src/focus-claude.ps1`.
+
 ## Run it
 
 ```powershell

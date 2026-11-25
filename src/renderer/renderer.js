@@ -8,6 +8,7 @@
   const count = document.getElementById('count');
   const badge = document.getElementById('badge');
   const bubbleText = document.getElementById('bubble-text');
+  const chips = document.getElementById('chips');
 
   const ROW_H = 54;
   const HEADER_H = 40;
@@ -15,7 +16,7 @@
   const LABEL = { approval: 'needs approval', question: 'has a question', done: 'finished', working: 'working', idle: 'idle' };
   const BUBBLE = { sleep: 'z z', idle: '', working: '…', done: '✓', question: '?', approval: '!' };
 
-  let last = { sessions: [], mood: 'idle', attention: 0, expanded: false };
+  let last = { sessions: [], mood: 'idle', attention: 0, overdue: false, types: { approval: 0, question: 0, done: 0 }, expanded: false };
   let audio = null;
 
   function wantedHeight(n) {
@@ -30,12 +31,47 @@
     return Math.floor(s / 3600) + ' h ago';
   }
 
+  function dur(ms) {
+    const m = Math.floor(ms / 60000);
+    return m < 1 ? 'under a minute' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+  }
+
+  // One chip per kind of notification, kept between renders so they don't replay their pop-in.
+  const chipEls = new Map();
+  const CHIP = { approval: '!', question: '?', done: '✓' };
+  function renderChips(state) {
+    const kinds = ['approval', 'question', 'done'].filter((k) => state.types[k] > 0);
+    const multi = kinds.length >= 2;
+    const late = new Set(state.sessions.filter((s) => s.overdue).map((s) => s.state));
+    for (const [k, el] of chipEls) {
+      if (!multi || !kinds.includes(k)) { el.remove(); chipEls.delete(k); }
+    }
+    if (multi) {
+      kinds.forEach((k, i) => {
+        let el = chipEls.get(k);
+        if (!el) {
+          el = document.createElement('div');
+          el.append(document.createTextNode(CHIP[k]), document.createElement('small'));
+          chipEls.set(k, el);
+        }
+        el.className = `chip k-${k}${late.has(k) ? ' late' : ''}`;
+        el.style.setProperty('--i', String(i));
+        el.querySelector('small').textContent = String(state.types[k]);
+        el.querySelector('small').hidden = state.types[k] < 2;
+        chips.append(el); // append keeps urgent-first order: approval, question, done
+      });
+    }
+    return multi;
+  }
+
   function render(state) {
     last = state;
     const mood = state.sessions.length === 0 ? 'sleep' : state.mood;
-    root.className = `side-${state.layout.side} ${state.layout.vertical} mood-${mood}`;
-    bubbleText.textContent = BUBBLE[mood] ?? '';
-    document.getElementById('bubble').style.visibility = BUBBLE[mood] ? 'visible' : 'hidden';
+    root.className = `side-${state.layout.side} ${state.layout.vertical} mood-${mood}${state.overdue ? ' angry' : ''}`;
+    const multi = renderChips(state);
+    const text = state.overdue && !multi ? (mood === 'question' ? '?!' : '!!') : BUBBLE[mood] ?? '';
+    bubbleText.textContent = text;
+    document.getElementById('bubble').style.visibility = text && !multi ? 'visible' : 'hidden';
 
     badge.hidden = state.attention === 0;
     badge.textContent = String(state.attention);
@@ -49,7 +85,7 @@
     list.textContent = '';
     for (const s of state.sessions) {
       const li = document.createElement('li');
-      li.className = `row s-${s.state}${s.jumpable ? '' : ' nojump'}`;
+      li.className = `row s-${s.state}${s.jumpable ? '' : ' nojump'}${s.overdue ? ' late' : ''}`;
       li.tabIndex = 0;
       li.title = s.jumpable ? 'Open this chat' : 'This chat is not in Claude Desktop, so it cannot be opened from here';
 
@@ -62,7 +98,8 @@
       const sub = document.createElement('div');
       sub.className = 'sub';
       const showFolder = s.folder && s.folder.toLowerCase() !== s.name.toLowerCase();
-      sub.textContent = `${LABEL[s.state]} · ${ago(s.since)}${showFolder ? ' · ' + s.folder : ''}`;
+      const when = s.overdue ? `waiting ${dur(Date.now() - s.since)}!` : ago(s.since);
+      sub.textContent = `${LABEL[s.state]} · ${when}${showFolder ? ' · ' + s.folder : ''}`;
       text.append(name, sub);
       li.append(dot, text);
 
@@ -88,13 +125,13 @@
   function chime(states) {
     try {
       audio = audio || new AudioContext();
-      const top = states.includes('approval') ? 'approval' : states.includes('question') ? 'question' : 'done';
-      const notes = { done: [660, 880], question: [587, 740, 880], approval: [880, 698, 880] }[top];
+      const top = states.includes('overdue') ? 'overdue' : states.includes('approval') ? 'approval' : states.includes('question') ? 'question' : 'done';
+      const notes = { done: [660, 880], question: [587, 740, 880], approval: [880, 698, 880], overdue: [523, 440, 523, 440] }[top];
       notes.forEach((f, i) => {
         const o = audio.createOscillator();
         const g = audio.createGain();
         const t = audio.currentTime + i * 0.13;
-        o.type = 'sine';
+        o.type = top === 'overdue' ? 'triangle' : 'sine';
         o.frequency.value = f;
         g.gain.setValueAtTime(0.0001, t);
         g.gain.exponentialRampToValueAtTime(0.12, t + 0.02);

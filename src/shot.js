@@ -38,6 +38,30 @@ async function run(win, prefix, { store, setPanel, push }) {
   hook('s-w', 'fundamental.ittica.nl', 'UserPromptSubmit');
   setPanel(260);
   await snap('7-panel');
+  setPanel(0);
+
+  // angry: one chat has waited far longer than the patience
+  store.sessions.clear();
+  hook('s-a', 'bonnebella.nl', 'PermissionRequest', { tool_name: 'Bash' });
+  store.sessions.get('s-a').since = Date.now() - 9 * 60_000;
+  await snap('8-angry');
+  store.sessions.clear();
+  hook('s-q', 'delijstenfabriek.nl', 'PreToolUse', { tool_name: 'AskUserQuestion' });
+  store.sessions.get('s-q').since = Date.now() - 9 * 60_000;
+  await snap('9-angry-question');
+
+  // several kinds at once: one chip per kind
+  store.sessions.clear();
+  hook('s-q', 'delijstenfabriek.nl', 'PreToolUse', { tool_name: 'AskUserQuestion' });
+  hook('s-d', 'printuploader.com', 'Stop');
+  await snap('10-chips-2');
+  hook('s-a', 'bonnebella.nl', 'PermissionRequest', { tool_name: 'Bash' });
+  hook('s-d2', 'snijdersenvandijk.nl', 'Stop');
+  await snap('11-chips-3');
+  store.sessions.get('s-a').since = Date.now() - 9 * 60_000;
+  await snap('12-chips-3-angry');
+  setPanel(300);
+  await snap('13-panel-angry');
 
   app.quit();
 }
