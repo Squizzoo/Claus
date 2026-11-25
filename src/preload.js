@@ -12,4 +12,9 @@ contextBridge.exposeInMainWorld('pet', {
   dragEnd: () => ipcRenderer.send('drag-end'),
   jump: (id) => ipcRenderer.send('jump', id),
   dismiss: (id) => ipcRenderer.send('dismiss', id),
+  clearFinished: () => ipcRenderer.send('clear-finished'),
+  clearIdle: () => ipcRenderer.send('clear-idle'),
+  undo: () => ipcRenderer.send('undo'),
+  unhide: () => ipcRenderer.send('unhide'),
+  setPrefs: (patch) => ipcRenderer.send('set-prefs', patch),
 });

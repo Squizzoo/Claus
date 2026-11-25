@@ -3,18 +3,37 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:">
-  <title>Claude Pet</title>
+  <title>Clause</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="root" class="side-right up mood-sleep">
     <section id="panel" aria-label="Claude chats" hidden>
-      <header><span>Claude chats</span><span id="count"></span></header>
-      <ul id="list"></ul>
-      <p id="empty" hidden>No chats are open right now.</p>
+      <div id="card">
+        <header><span>Claude chats</span><span id="count"></span></header>
+        <div id="tools">
+          <input id="search" type="text" placeholder="Search chats  ( / )" aria-label="Search chats" autocomplete="off" spellcheck="false">
+          <button id="opts-toggle" type="button" title="View options" aria-label="View options" aria-expanded="false">⋯</button>
+        </div>
+        <div id="opts" hidden>
+          <button type="button" data-opt="groupBy"></button>
+          <button type="button" data-opt="sort"></button>
+          <button type="button" data-opt="density"></button>
+        </div>
+        <ul id="list"></ul>
+        <p id="empty" hidden>No chats are open right now.</p>
+        <footer id="footer" hidden>
+          <div id="undo-bar" hidden><span id="undo-text"></span><button type="button" id="undo">Undo</button></div>
+          <div id="bulk">
+            <button type="button" id="clear-done"></button>
+            <button type="button" id="clear-idle"></button>
+            <button type="button" id="unhide"></button>
+          </div>
+        </footer>
+      </div>
     </section>
 
-    <div id="pet" role="button" tabindex="0" aria-label="Claude pet">
+    <div id="pet" role="button" tabindex="0" aria-label="Clause">
       <div id="badge" hidden>0</div>
       <div id="chips"></div>
       <svg viewBox="0 0 150 150" width="150" height="150" aria-hidden="true">
@@ -67,6 +86,7 @@
       </svg>
     </div>
   </div>
+  <script src="view.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

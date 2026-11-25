@@ -61,19 +61,42 @@ function basename(p) {
 
 const WAITING_ON_YOU = new Set(['question', 'approval']);
 const DEFAULT_IMPATIENT_MS = 120_000;
+const UNDO_MS = 15_000;
+
+/**
+ * The one key a project is known by: grouping, muting and pinning all use it. Hook and registry
+ * paths can differ in case or slash style on Windows, so it is lowercase with forward slashes.
+ */
+function projectKey(cwd) {
+  return String(cwd || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
 
 class SessionStore {
-  constructor({ now = Date.now, impatientMs = DEFAULT_IMPATIENT_MS } = {}) {
+  constructor({ now = Date.now, impatientMs = DEFAULT_IMPATIENT_MS, undoMs = UNDO_MS } = {}) {
     this.now = now;
     this.sessions = new Map();
     this.registrySynced = false;
     this.alerts = []; // pending {id, state} for the UI to chime
     this.impatientMs = impatientMs; // 0 = never gets angry
+    this.undoMs = undoMs;
+    this.mutedIds = new Set();
+    this.mutedProjects = new Set();
+    this.lastClear = null; // {at, items} of the last x / bulk clear, for undo
+  }
+
+  /** Muted chats and projects never alert, never get angry and do not count as waiting. */
+  setMuted({ ids = [], projects = [] } = {}) {
+    this.mutedIds = new Set(ids.map(String));
+    this.mutedProjects = new Set(projects.map(projectKey));
+  }
+
+  _isMuted(s) {
+    return this.mutedIds.has(s.id) || (Boolean(s.cwd) && this.mutedProjects.has(projectKey(s.cwd)));
   }
 
   /** A chat that asked you something and has waited longer than the patience. */
   _isOverdue(s) {
-    return this.impatientMs > 0 && WAITING_ON_YOU.has(s.state) && this.now() - s.since >= this.impatientMs;
+    return this.impatientMs > 0 && !this._isMuted(s) && WAITING_ON_YOU.has(s.state) && this.now() - s.since >= this.impatientMs;
   }
 
   /**
@@ -118,7 +141,8 @@ class SessionStore {
     s.state = state;
     s.since = this.now();
     s.lateNotified = false;
-    if (ATTENTION.has(state)) this.alerts.push({ id: s.id, state });
+    s.hidden = false; // a hidden idle chat comes back as soon as it does anything
+    if (ATTENTION.has(state) && !this._isMuted(s)) this.alerts.push({ id: s.id, state });
     return true;
   }
 
@@ -187,16 +211,74 @@ class SessionStore {
     return changed;
   }
 
-  /** The user looked at / dismissed a finished chat. */
+  /**
+   * The user opened a finished chat. Used by jumping, so it never hides anything and leaves no undo.
+   */
   dismiss(id) {
     const s = this.sessions.get(id);
     if (s && s.state === 'done') return this._set(s, 'idle');
     return false;
   }
 
+  /** Clears one row on request (the x): finished -> idle, idle -> hidden. Undoable. */
+  dismissRow(id) {
+    const s = this.sessions.get(id);
+    if (!s) return false;
+    return this._clear([s]);
+  }
+
   dismissAllDone() {
+    return this._clear([...this.sessions.values()].filter((s) => s.state === 'done'));
+  }
+
+  dismissAllIdle() {
+    return this._clear([...this.sessions.values()].filter((s) => s.state === 'idle' && !s.hidden));
+  }
+
+  /** Shared by the x and the bulk buttons; records one undo batch for the whole call. */
+  _clear(list) {
+    const items = [];
+    for (const s of list) {
+      if (s.state !== 'done' && !(s.state === 'idle' && !s.hidden)) continue;
+      const before = { state: s.state, since: s.since, hidden: Boolean(s.hidden) };
+      if (s.state === 'done') this._set(s, 'idle');
+      else s.hidden = true;
+      items.push({ id: s.id, before, after: { state: s.state, since: s.since, hidden: Boolean(s.hidden) } });
+    }
+    if (!items.length) return false;
+    this.lastClear = { at: this.now(), items };
+    return true;
+  }
+
+  _undoable() {
+    return Boolean(this.lastClear) && this.now() - this.lastClear.at <= this.undoMs;
+  }
+
+  /** Puts back the last clear, skipping chats that changed since. No alerts are raised. */
+  undo() {
+    if (!this._undoable()) {
+      this.lastClear = null;
+      return false;
+    }
     let changed = false;
-    for (const s of this.sessions.values()) if (s.state === 'done') changed = this._set(s, 'idle') || changed;
+    for (const { id, before, after } of this.lastClear.items) {
+      const s = this.sessions.get(id);
+      if (!s || s.state !== after.state || s.since !== after.since || Boolean(s.hidden) !== after.hidden) continue;
+      s.state = before.state;
+      s.since = before.since;
+      s.hidden = before.hidden;
+      s.lateNotified = false;
+      changed = true;
+    }
+    this.lastClear = null;
+    return changed;
+  }
+
+  unhideAll() {
+    let changed = false;
+    for (const s of this.sessions.values()) {
+      if (s.hidden) { s.hidden = false; changed = true; }
+    }
     return changed;
   }
 
@@ -207,14 +289,19 @@ class SessionStore {
   }
 
   snapshot() {
-    const list = [...this.sessions.values()].sort(
-      (a, b) => PRIORITY[b.state] - PRIORITY[a.state] || b.since - a.since
-    );
+    const all = [...this.sessions.values()];
+    const list = all
+      .filter((s) => !s.hidden)
+      .sort((a, b) => PRIORITY[b.state] - PRIORITY[a.state] || b.since - a.since);
     let mood = 'idle';
     let attention = 0;
     let overdue = false;
     const types = { approval: 0, question: 0, done: 0 }; // chats per kind of notification
+    const counts = { done: 0, idle: 0 }; // what the bulk buttons would clear
     for (const s of list) {
+      if (s.state === 'done') counts.done++;
+      else if (s.state === 'idle') counts.idle++;
+      if (this._isMuted(s)) continue; // muted chats stay in the list but never move the pet
       if (PRIORITY[s.state] > PRIORITY[mood]) mood = s.state;
       if (ATTENTION.has(s.state)) {
         attention++;
@@ -222,18 +309,26 @@ class SessionStore {
       }
       if (this._isOverdue(s)) overdue = true;
     }
+    const undoable = this._undoable();
     return {
       mood,
       attention,
       overdue,
       types,
+      counts,
+      hiddenCount: all.length - list.length,
+      undoable,
+      undoUntil: undoable ? this.lastClear.at + this.undoMs : 0,
+      undoCount: undoable ? this.lastClear.items.length : 0,
       sessions: list.map((s) => ({
         id: s.id,
         name: s.name || '(untitled)',
         folder: basename(s.cwd),
+        project: projectKey(s.cwd),
         state: s.state,
         since: s.since,
         overdue: this._isOverdue(s),
+        muted: this._isMuted(s),
         jumpable: Boolean(s.hostSessionId),
       })),
     };
@@ -246,4 +341,4 @@ class SessionStore {
   }
 }
 
-module.exports = { SessionStore, nextState, PRIORITY, ATTENTION, SESSION_ID, DEFAULT_IMPATIENT_MS, basename };
+module.exports = { SessionStore, nextState, PRIORITY, ATTENTION, SESSION_ID, DEFAULT_IMPATIENT_MS, UNDO_MS, basename, projectKey };

@@ -1,26 +1,31 @@
-# Claude Pet Roadmap
+# Clause Roadmap
 
 Ideas for where the pet goes next, grouped in phases and ordered roughly by value
 against effort. Nothing here is built yet unless marked **[done]**. Tick items off
 as they land.
 
-## Phase 1: List ergonomics
+## Phase 1: List ergonomics **[done]**
 
 Small changes with a big payoff now that the chat list is getting long.
 
-- [ ] **Check the x on each row.** `dismiss` already exists in `src/main.js` and the
-      UI test clicks it. Verify the x is visible (or appears on hover) in the panel.
-- [ ] **Search and filter.** Search box at the top of the panel matching chat title
-      and project name. `/` focuses it, arrow keys move, Enter jumps to the chat.
-- [ ] **Group by project.** Collapsible sections per `cwd` with a count, e.g.
-      `delijstenfabriek.nl (2)`. Sort option "Needs me first": approvals and
-      questions above idle chats.
-- [ ] **Bulk actions.** "Clear all idle" and "Clear finished" in the panel (today
-      only in the tray menu). Undo after an accidental x.
-- [ ] **Pin and mute.** Pinned chats stay on top. Muted chats or projects never
-      trigger sound or chips.
-- [ ] **Readable rows.** Status colour or icon per row, last event text ("asked a
-      question 3 min ago"), compact or comfortable density.
+- [x] **Check the x on each row.** Always visible on finished and idle rows. On a finished
+      chat it clears the notification, on an idle chat it hides the row until that chat does
+      something again (not shown for working, question or approval, which still need you).
+- [x] **Search and filter.** Search box at the top of the panel matching chat title and
+      project name (every word must match). `/` focuses it, arrow keys move, Enter opens the
+      first chat that can be opened, Esc clears the search and then closes the panel.
+- [x] **Group by project.** Collapsible sections per project with a count, e.g.
+      `delijstenfabriek.nl (2)`; a collapsed section still shows the colour of its most urgent
+      chat. Sort option "Needs me first" (default) or "Most recent"; grouping can be turned off.
+- [x] **Bulk actions.** "Clear finished" and "Clear idle" in the panel footer, "n hidden ·
+      Show" to bring hidden chats back, and an Undo toast (15 s) after any x or bulk clear.
+- [x] **Pin and mute.** Pinned chats stay on top (a Pinned section). Muted chats or projects
+      never trigger sound, chips, the badge or the angry pet; they stay in the list, dimmed.
+      Hover a row for the pin and mute buttons; a project header has its own mute button.
+      Keyboard on a focused row: `p` pin, `m` mute, Delete dismiss.
+- [x] **Readable rows.** Status stripe and tint per row, last event text ("asked a question ·
+      3 min ago"), and a compact density that shows only a short age. View options (group, sort,
+      density) sit behind the ⋯ button next to the search box and are remembered.
 
 ## Phase 2: Pet personality
 
@@ -80,7 +85,7 @@ Small changes with a big payoff now that the chat list is getting long.
 
 ## Suggested order
 
-1. Phase 1: x check, search, project grouping.
+1. ~~Phase 1: x check, search, project grouping~~ (done, with the rest of the phase).
 2. Phase 2: pet-picker abstraction (everything pet-related builds on it).
 3. Phase 3: toasts and snooze.
 4. Phase 5: settings panel, once there are enough options to need one.
