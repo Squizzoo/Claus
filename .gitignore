@@ -1,3 +1,6 @@
 node_modules/
 *.log
 out/
+CLAUDE.md
+.tokensave
+.playwright-mcp
