@@ -54,6 +54,22 @@ Hooks are read by chats at start, so restart chats that were already open.
 Remove them any time with `node scripts/hooks.js uninstall --apply`.
 Tray icon: reset position, mute sounds, clear finished, quit.
 
+## Start and stop with Claude
+
+`scripts/watch-claude.ps1` is a tiny hidden watcher: it starts the pet when Claude
+Desktop opens and stops it when Claude Desktop closes. It only reacts to changes,
+so if you quit the pet from the tray while Claude stays open, it stays quit until
+Claude opens again. It matches the desktop app only, not the Claude Code engines.
+
+```powershell
+.\scripts\autostart.ps1 install     # adds it to your Startup folder and starts it now
+.\scripts\autostart.ps1 status
+.\scripts\autostart.ps1 uninstall   # removes it again
+```
+
+Note: if closing Claude's window only hides it to the system tray, Claude is still
+running, so the pet stays until you fully quit Claude.
+
 ## Privacy
 
 - Everything is local. The receiver only listens on `127.0.0.1`, rejects any
@@ -69,6 +85,16 @@ Tray icon: reset position, mute sounds, clear finished, quit.
 ```powershell
 npm test                                   # state machine, hook receiver
 npx electron . --shot=out/mood             # renders every mood + the list to out/*.png
+```
+
+Clicks are tested with real mouse events over the DevTools protocol (unit tests do not
+cover the renderer). Start the pet with the debug port, then drive it:
+
+```powershell
+$env:CLAUDE_PET_LOG = '1'; node_modules\electron\dist\electron.exe . --remote-debugging-port=9229
+node scripts/ui-test.mjs open     # click the cat; reports how often the list redraws (must be 0)
+node scripts/ui-test.mjs x 0      # click the x of row 0
+node scripts/ui-test.mjs row 0    # click row 0; the log (pet-events.log) must show jump ... focused
 ```
 
 ## Known limits

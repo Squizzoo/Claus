@@ -96,10 +96,11 @@ function computeBounds() {
     height: Math.min(height, a.height),
   };
 }
+// Moves/resizes the window. Callers that change what the renderer should draw (the panel or
+// its side) call push() themselves: pushing from here is what made the list redraw in a loop.
 function applyBounds() {
   if (!win || win.isDestroyed()) return;
   win.setBounds(computeBounds());
-  push();
 }
 
 // ---------- window ----------
@@ -132,6 +133,7 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.once('ready-to-show', () => win.showInactive());
   win.on('blur', () => {
+    debugLog(`blur (panel ${panelH > 0 ? 'open' : 'closed'})`);
     if (panelH > 0 && !drag) setPanel(0);
   });
   // webContents never navigates away or opens windows
@@ -147,9 +149,13 @@ function push() {
 }
 
 function setPanel(extra) {
-  panelH = Math.max(0, Math.round(extra));
+  const next = Math.max(0, Math.round(extra));
+  if (next === panelH) return; // nothing changed: do not resize, push or steal focus again
+  const opening = panelH === 0 && next > 0;
+  panelH = next;
   applyBounds();
-  if (panelH > 0 && win) win.focus();
+  push();
+  if (opening && win) win.focus();
 }
 
 // ---------- IPC ----------
@@ -158,6 +164,7 @@ ipcMain.on('panel-height', (_e, h) => {
   if (panelH > 0) setPanel(Math.min(h, 420));
 });
 ipcMain.on('toggle-panel', (_e, wantedHeight) => {
+  debugLog(`ipc toggle-panel (panel ${panelH > 0 ? 'open' : 'closed'})`);
   if (panelH > 0) setPanel(0);
   else setPanel(Math.min(Number(wantedHeight) || 120, 420));
 });
@@ -183,6 +190,7 @@ ipcMain.on('drag-end', () => {
   settings.y = petPos.y;
   saveSettings();
   applyBounds();
+  push();
 });
 
 /** Opens a chat in Claude Desktop and raises the window above whatever covers it. */
@@ -207,9 +215,11 @@ async function jumpTo(id) {
   return true;
 }
 ipcMain.on('jump', (_e, id) => {
+  debugLog(`ipc jump ${String(id).slice(0, 8)}`);
   jumpTo(String(id));
 });
 ipcMain.on('dismiss', (_e, id) => {
+  debugLog(`ipc dismiss ${String(id).slice(0, 8)}`);
   if (store.dismiss(String(id))) push();
 });
 
@@ -222,7 +232,7 @@ function buildTray() {
     tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: 'Show pet', click: () => win && (win.showInactive(), win.setAlwaysOnTop(true, 'floating')) },
-        { label: 'Reset position', click: () => { petPos = defaultPos(); settings.x = petPos.x; settings.y = petPos.y; saveSettings(); applyBounds(); } },
+        { label: 'Reset position', click: () => { petPos = defaultPos(); settings.x = petPos.x; settings.y = petPos.y; saveSettings(); applyBounds(); push(); } },
         { label: 'Mute sounds', type: 'checkbox', checked: settings.muted, click: (i) => { settings.muted = i.checked; saveSettings(); push(); } },
         {
           label: 'Gets angry after waiting',
@@ -286,8 +296,8 @@ app.whenReady().then(async () => {
     }, 3000);
   }
 
-  screen.on('display-removed', () => { petPos = clampToDisplays(petPos.x, petPos.y); applyBounds(); });
-  screen.on('display-metrics-changed', () => { petPos = clampToDisplays(petPos.x, petPos.y); applyBounds(); });
+  screen.on('display-removed', () => { petPos = clampToDisplays(petPos.x, petPos.y); applyBounds(); push(); });
+  screen.on('display-metrics-changed', () => { petPos = clampToDisplays(petPos.x, petPos.y); applyBounds(); push(); });
   // Dev aid: `electron . --shot=out.png` renders the current state to a PNG, then quits.
   const shot = process.argv.find((a) => a.startsWith('--shot='));
   if (shot) require('./shot').run(win, shot.slice(7), { store, setPanel, push });

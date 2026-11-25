@@ -2,7 +2,10 @@
 # Windows normally refuses to let a background program steal focus, so this
 # attaches to the foreground thread's input queue first, the usual workaround.
 # Prints "focused", "not-foreground" or "no-window". Exit code is always 0.
-param([int]$WaitMs = 2500)
+param(
+  [int]$WaitMs = 2500,
+  [int]$ProcessId = 0   # testing only: raise the window of this process instead of Claude's
+)
 
 Add-Type @"
 using System;
@@ -21,6 +24,7 @@ public static class PetWin {
 "@
 
 function Find-ClaudeWindow {
+  if ($ProcessId) { return Get-Process -Id $ProcessId -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } }
   Get-Process -Name claude -ErrorAction SilentlyContinue |
     Where-Object { $_.MainWindowHandle -ne 0 -and $_.Path -like '*\WindowsApps\Claude_*\app\Claude.exe' } |
     Select-Object -First 1
@@ -45,10 +49,8 @@ $fgThread = [PetWin]::GetWindowThreadProcessId($fg, [ref]$fgPid)
 $me = [PetWin]::GetCurrentThreadId()
 $attached = $false
 if ($fgThread -ne 0 -and $fgThread -ne $me) { $attached = [PetWin]::AttachThreadInput($me, $fgThread, $true) }
-[PetWin]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)      # Alt down: lets SetForegroundWindow through
 [void][PetWin]::BringWindowToTop($h)
 [void][PetWin]::SetForegroundWindow($h)
-[PetWin]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)      # Alt up
 if ($attached) { [void][PetWin]::AttachThreadInput($me, $fgThread, $false) }
 
 Start-Sleep -Milliseconds 80

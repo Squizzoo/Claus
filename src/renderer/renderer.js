@@ -18,6 +18,8 @@
 
   let last = { sessions: [], mood: 'idle', attention: 0, overdue: false, types: { approval: 0, question: 0, done: 0 }, expanded: false };
   let audio = null;
+  let listSig = '';
+  let sentHeight = -1;
 
   function wantedHeight(n) {
     return Math.min(HEADER_H + Math.max(n, 1) * ROW_H + 8, MAX_PANEL);
@@ -82,44 +84,91 @@
     empty.hidden = state.sessions.length > 0;
     list.hidden = state.sessions.length === 0;
 
-    list.textContent = '';
-    for (const s of state.sessions) {
-      const li = document.createElement('li');
-      li.className = `row s-${s.state}${s.jumpable ? '' : ' nojump'}${s.overdue ? ' late' : ''}`;
-      li.tabIndex = 0;
-      li.title = s.jumpable ? 'Open this chat' : 'This chat is not in Claude Desktop, so it cannot be opened from here';
-
-      const dot = document.createElement('span');
-      dot.className = 'dot';
-      const text = document.createElement('div');
-      const name = document.createElement('div');
-      name.className = 'name';
-      name.textContent = s.name;
-      const sub = document.createElement('div');
-      sub.className = 'sub';
+    // Rebuild the rows only when what they show has changed. Rebuilding on every render
+    // replaces the row under the mouse between press and release, and the click is lost.
+    const rows = state.sessions.map((s) => {
       const showFolder = s.folder && s.folder.toLowerCase() !== s.name.toLowerCase();
       const when = s.overdue ? `waiting ${dur(Date.now() - s.since)}!` : ago(s.since);
-      sub.textContent = `${LABEL[s.state]} · ${when}${showFolder ? ' · ' + s.folder : ''}`;
-      text.append(name, sub);
-      li.append(dot, text);
+      return {
+        id: s.id,
+        state: s.state,
+        jumpable: s.jumpable,
+        overdue: s.overdue,
+        name: s.name,
+        sub: `${LABEL[s.state]} · ${when}${showFolder ? ' · ' + s.folder : ''}`,
+      };
+    });
+    const sig = JSON.stringify(rows);
+    if (sig !== listSig) {
+      listSig = sig;
+      list.textContent = '';
+      for (const r of rows) {
+        const li = document.createElement('li');
+        li.className = `row s-${r.state}${r.jumpable ? '' : ' nojump'}${r.overdue ? ' late' : ''}`;
+        li.dataset.id = r.id;
+        li.dataset.jump = r.jumpable ? '1' : '';
+        li.tabIndex = 0;
+        li.title = r.jumpable ? 'Open this chat' : 'This chat is not in Claude Desktop, so it cannot be opened from here';
 
-      if (s.state === 'done') {
-        const x = document.createElement('button');
-        x.className = 'x';
-        x.textContent = '×';
-        x.title = 'Dismiss';
-        x.addEventListener('click', (e) => { e.stopPropagation(); window.pet.dismiss(s.id); });
-        li.append(x);
-      } else {
-        li.append(document.createElement('span'));
+        const dot = document.createElement('span');
+        dot.className = 'dot';
+        const text = document.createElement('div');
+        const name = document.createElement('div');
+        name.className = 'name';
+        name.textContent = r.name;
+        const sub = document.createElement('div');
+        sub.className = 'sub';
+        sub.textContent = r.sub;
+        text.append(name, sub);
+        li.append(dot, text);
+
+        if (r.state === 'done') {
+          const x = document.createElement('button');
+          x.className = 'x';
+          x.type = 'button';
+          x.textContent = '×';
+          x.title = 'Dismiss';
+          li.append(x);
+        } else {
+          li.append(document.createElement('span'));
+        }
+        list.append(li);
       }
-      const open = () => s.jumpable && window.pet.jump(s.id);
-      li.addEventListener('click', open);
-      li.addEventListener('keydown', (e) => { if (e.key === 'Enter') open(); });
-      list.append(li);
     }
-    if (state.expanded) window.pet.panelHeight(wantedHeight(state.sessions.length));
+
+    // Ask the main process for a different window height only when the wanted height changed.
+    if (state.expanded) {
+      const want = wantedHeight(state.sessions.length);
+      if (want !== sentHeight) {
+        sentHeight = want;
+        window.pet.panelHeight(want);
+      }
+    } else {
+      sentHeight = -1;
+    }
   }
+
+  // ---------- clicks on the list (delegated, so a redraw mid-click cannot lose them) ----------
+  let pressed = null;
+  const hit = (e) => {
+    const row = e.target instanceof Element ? e.target.closest('.row') : null;
+    return row ? { id: row.dataset.id, jumpable: row.dataset.jump === '1', x: Boolean(e.target.closest('.x')) } : null;
+  };
+  list.addEventListener('pointerdown', (e) => {
+    if (e.button === 0) pressed = hit(e);
+  });
+  list.addEventListener('pointerup', (e) => {
+    const down = pressed;
+    pressed = null;
+    const up = hit(e);
+    if (!down || !up || down.id !== up.id || down.x !== up.x) return; // released somewhere else
+    if (up.x) window.pet.dismiss(up.id);
+    else if (up.jumpable) window.pet.jump(up.id);
+  });
+  list.addEventListener('keydown', (e) => {
+    const h = e.key === 'Enter' ? hit(e) : null;
+    if (h && h.jumpable) window.pet.jump(h.id);
+  });
 
   // ---------- sound ----------
   function chime(states) {
