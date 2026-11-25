@@ -23,7 +23,7 @@ switch ($Action) {
     # A .vbs window style of 0 runs PowerShell with no console window at all.
     $cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """"$watcher"""""
     Set-Content -Path $launcher -Encoding ASCII -Value @(
-      "' Starts the Claude Pet watcher without a window. Remove with: scripts\autostart.ps1 uninstall",
+      "' Starts the Clause watcher without a window. Remove with: scripts\autostart.ps1 uninstall",
       "CreateObject(""WScript.Shell"").Run ""$cmd"", 0, False"
     )
     if (-not (Get-Watcher)) { & wscript.exe $launcher }
