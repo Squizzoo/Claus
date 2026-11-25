@@ -1,4 +1,4 @@
-# Clause
+# Claus
 
 A small cat that lives on your desktop and tells you when any Claude chat has
 **finished**, has a **question** or needs your **approval**. Click it to see all
