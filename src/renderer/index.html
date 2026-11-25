@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:">
+  <title>Claude Pet</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="root" class="side-right up mood-sleep">
+    <section id="panel" aria-label="Claude chats" hidden>
+      <header><span>Claude chats</span><span id="count"></span></header>
+      <ul id="list"></ul>
+      <p id="empty" hidden>No chats are open right now.</p>
+    </section>
+
+    <div id="pet" role="button" tabindex="0" aria-label="Claude pet">
+      <div id="badge" hidden>0</div>
+      <svg viewBox="0 0 150 150" width="150" height="150" aria-hidden="true">
+        <ellipse id="shadow" cx="75" cy="139" rx="34" ry="5.5"/>
+        <g id="bob">
+          <g id="tilt">
+            <path id="tail" d="M112 118 C140 114 146 88 131 78"/>
+            <path class="ear" d="M42 66 L38 30 L68 50 Z"/>
+            <path class="ear" d="M108 66 L112 30 L82 50 Z"/>
+            <path class="ear-in" d="M45 58 L43 40 L58 50 Z"/>
+            <path class="ear-in" d="M105 58 L107 40 L92 50 Z"/>
+            <ellipse id="body" cx="75" cy="94" rx="47" ry="41"/>
+            <ellipse class="foot" cx="54" cy="132" rx="13" ry="7"/>
+            <ellipse class="foot" cx="96" cy="132" rx="13" ry="7"/>
+            <ellipse class="cheek" cx="44" cy="102" rx="8" ry="5"/>
+            <ellipse class="cheek" cx="106" cy="102" rx="8" ry="5"/>
+
+            <g class="eyes eyes-open"><g class="blink">
+              <circle cx="57" cy="90" r="6.5"/><circle cx="93" cy="90" r="6.5"/>
+              <circle class="shine" cx="59" cy="87.5" r="2.2"/><circle class="shine" cx="95" cy="87.5" r="2.2"/>
+            </g></g>
+            <g class="eyes eyes-happy">
+              <path d="M49 92 Q57 82 65 92"/><path d="M85 92 Q93 82 101 92"/>
+            </g>
+            <g class="eyes eyes-closed">
+              <path d="M49 90 Q57 96 65 90"/><path d="M85 90 Q93 96 101 90"/>
+            </g>
+            <g class="eyes eyes-worried">
+              <circle cx="57" cy="91" r="7.5"/><circle cx="93" cy="91" r="7.5"/>
+              <circle class="shine" cx="59.5" cy="88" r="2.6"/><circle class="shine" cx="95.5" cy="88" r="2.6"/>
+              <path class="brow" d="M48 83 L64 76"/><path class="brow" d="M102 83 L86 76"/>
+            </g>
+
+            <path id="nose" d="M71 99 L79 99 L75 104 Z"/>
+            <path id="mouth" d="M68 106 Q75 112 82 106"/>
+          </g>
+        </g>
+
+        <g id="bubble">
+          <path id="bubble-shape" d="M98 8 h38 a8 8 0 0 1 8 8 v20 a8 8 0 0 1 -8 8 h-26 l-8 8 v-8 h-4 a8 8 0 0 1 -8 -8 v-20 a8 8 0 0 1 8 -8 z"/>
+          <text id="bubble-text" x="117" y="35" text-anchor="middle">?</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>

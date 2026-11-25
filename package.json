@@ -1,0 +1,17 @@
+{
+  "name": "claude-pet",
+  "version": "0.1.0",
+  "description": "A floating desktop pet that tells you when any Claude chat has finished, has a question or needs your input.",
+  "main": "src/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/",
+    "hooks:status": "node scripts/hooks.js status",
+    "hooks:install": "node scripts/hooks.js install",
+    "hooks:uninstall": "node scripts/hooks.js uninstall"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
