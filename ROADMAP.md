@@ -1,4 +1,4 @@
-# Clause Roadmap
+# Claus Roadmap
 
 Ideas for where the pet goes next, grouped in phases and ordered roughly by value
 against effort. Nothing here is built yet unless marked **[done]**. Tick items off

@@ -262,7 +262,7 @@ ipcMain.on('set-prefs', (_e, patch) => updatePrefs(patch));
 function buildTray() {
   const img = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'tray.png'));
   tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img);
-  tray.setToolTip('Clause');
+  tray.setToolTip('Claus');
   const rebuild = () =>
     tray.setContextMenu(
       Menu.buildFromTemplate([
@@ -308,7 +308,7 @@ app.whenReady().then(async () => {
   try {
     await server.listen();
   } catch (err) {
-    console.error(`clause: cannot listen on 127.0.0.1:${PORT} (${err.code}). Is another pet running?`);
+    console.error(`claus: cannot listen on 127.0.0.1:${PORT} (${err.code}). Is another pet running?`);
     app.quit();
     return;
   }

@@ -1,4 +1,4 @@
-# Starts Clause when Claude Desktop opens and stops it when Claude Desktop closes.
+# Starts Claus when Claude Desktop opens and stops it when Claude Desktop closes.
 #
 # It reacts to changes only, so the pet stays under your control:
 #   Claude appears  -> start the pet (unless it is already running)
