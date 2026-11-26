@@ -26,6 +26,8 @@ const store = new SessionStore();
 const openChat = createOpenChatWatcher();
 let win = null; // the pet: always PET x PET, never resized (resizing a transparent window blinks it)
 let panelWin = null; // the chat list: its own window next to the pet, shown and hidden
+let settingsWin = null; // the settings window (a normal window, opened by double-clicking the pet or from the tray)
+let rebuildTray = () => {}; // set by buildTray; called when a setting changes elsewhere so the tray checkmarks stay right
 let tray = null;
 let server = null;
 let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, streak: celebrateLib.EMPTY }; // impatientMin 0 = never angry
@@ -45,6 +47,7 @@ function loadSettings() {
   settings.prefs = prefsLib.sanitize(settings.prefs);
   settings.look = lookLib.sanitize(settings.look);
   settings.streak = celebrateLib.sanitizeStreak(settings.streak);
+  Object.assign(settings, lookLib.sanitizeBehaviour(settings, lookLib.BEHAVIOUR_DEFAULTS));
   applyPrefs();
 }
 /** Muted chats and projects live in the list preferences; the store needs them to stay quiet. */
@@ -216,12 +219,65 @@ function push(opts = {}) {
   };
   win.webContents.send('state', { ...snap, expanded: false });
   if (panelWin && !panelWin.isDestroyed()) panelWin.webContents.send('state', { ...snap, expanded: panelH > 0, paintId: opts.paintId });
+  sendSettings();
   const alerts = store.takeAlerts();
   const sound = currentSound();
   // the celebration brings its own fanfare, so the plain finished-chime is skipped when only finishes caused it
   const states = alerts.map((a) => a.state);
   if (alerts.length && sound && !(together && states.every((s) => s === 'done'))) win.webContents.send('alert', { states, sound });
   if (together && !SHOT_RUN) celebrate(together); // shot runs trigger it themselves, so it does not land in other pictures
+}
+
+// ---------- settings window ----------
+/** What the settings window shows: the look, the other settings and the choices it offers for them. */
+function settingsSnapshot() {
+  return {
+    look: settings.look,
+    muted: settings.muted,
+    impatientMin: settings.impatientMin,
+    finishedToday: celebrateLib.finishedToday(settings.streak, new Date()),
+    quietNow: lookLib.isQuiet(new Date(), settings.look.quiet),
+    quiet: lookLib.QUIET_ORDER.map((id) => ({ id, label: lookLib.QUIET[id].label })),
+    patience: lookLib.PATIENCE,
+  };
+}
+let lastSettingsSent = '';
+/** Tells the settings window what changed; skipped when nothing did (push() runs on every hook event and poll). */
+function sendSettings(force = false) {
+  if (!settingsWin || settingsWin.isDestroyed()) return;
+  const snap = settingsSnapshot();
+  const json = JSON.stringify(snap);
+  if (!force && json === lastSettingsSent) return;
+  lastSettingsSent = json;
+  settingsWin.webContents.send('settings-state', snap);
+}
+function openSettings() {
+  if (settingsWin && !settingsWin.isDestroyed()) {
+    if (settingsWin.isMinimized()) settingsWin.restore();
+    settingsWin.show();
+    settingsWin.focus();
+    return settingsWin;
+  }
+  const w = new BrowserWindow({
+    width: 920,
+    height: 700,
+    minWidth: 800,
+    minHeight: 600,
+    title: 'Claus settings',
+    backgroundColor: '#1e1e22',
+    autoHideMenuBar: true,
+    show: false,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  settingsWin = w;
+  w.setMenuBarVisibility(false);
+  w.loadFile(path.join(__dirname, 'renderer', 'settings.html'));
+  w.webContents.on('will-navigate', (e) => e.preventDefault());
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.webContents.once('did-finish-load', () => sendSettings(true));
+  w.once('ready-to-show', () => w.show());
+  w.on('closed', () => { if (settingsWin === w) settingsWin = null; });
+  return w;
 }
 
 // A window that is shown for the first time (or again) can flash its previous content for a frame.
@@ -271,6 +327,12 @@ ipcMain.on('toggle-panel', (_e, wantedHeight) => {
   else setPanel(Math.min(Number(wantedHeight) || 120, MAX_PANEL));
 });
 ipcMain.on('collapse', () => setPanel(0));
+// Double-click on the pet: the list that the first click opened goes away, the settings window comes up.
+ipcMain.on('open-settings', () => {
+  debugLog('ipc open-settings');
+  setPanel(0);
+  openSettings();
+});
 
 ipcMain.on('drag-start', () => {
   const c = screen.getCursorScreenPoint();
@@ -353,22 +415,51 @@ ipcMain.on('set-prefs', (_e, patch) => updatePrefs(patch));
 function updateLook(patch) {
   settings.look = lookLib.merge(settings.look, patch);
   saveSettings();
+  rebuildTray();
   push();
 }
-/** A short sample after choosing a sound pack or volume (nothing while muted or in quiet hours). */
-function previewSound() {
-  const sound = currentSound();
-  if (sound && win && !win.isDestroyed()) win.webContents.send('alert', { states: ['done'], sound });
+/** Mute and the patience live outside settings.look; only known keys with valid values are applied. */
+function applyBehaviour(patch) {
+  const next = lookLib.sanitizeBehaviour(patch, { muted: settings.muted, impatientMin: settings.impatientMin });
+  settings.muted = next.muted;
+  if (next.impatientMin !== settings.impatientMin) {
+    settings.impatientMin = next.impatientMin;
+    store.impatientMs = next.impatientMin * 60_000;
+    store.tickOverdue();
+  }
+  saveSettings();
+  rebuildTray();
+  push();
 }
+/**
+ * A short sample of a sound (nothing while muted). Without a request (tray) it is the chosen pack and volume and also
+ * stays silent in quiet hours; the settings window asks for a specific pack and kind and, as an explicit click, plays in quiet hours too.
+ */
+const PREVIEW_KINDS = ['done', 'question', 'approval'];
+function previewSound(req) {
+  if (settings.muted || !win || win.isDestroyed()) return;
+  let sound = currentSound();
+  let kind = 'done';
+  if (req && typeof req === 'object') {
+    const l = lookLib.merge(settings.look, { pack: req.pack, volume: req.volume });
+    sound = { pack: l.pack, volume: l.volume };
+    if (PREVIEW_KINDS.includes(req.kind)) kind = req.kind;
+  }
+  if (sound) win.webContents.send('alert', { states: [kind], sound });
+}
+ipcMain.on('set-look', (_e, patch) => updateLook(patch));
+ipcMain.on('set-behaviour', (_e, patch) => applyBehaviour(patch));
+ipcMain.on('preview-sound', (_e, req) => previewSound(req));
 
 // ---------- tray ----------
 function buildTray() {
   const img = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'tray.png'));
   tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img);
   tray.setToolTip('Claus');
-  const rebuild = () =>
+  rebuildTray = () =>
     tray.setContextMenu(
       Menu.buildFromTemplate([
+        { label: 'Settings...', click: () => openSettings() },
         { label: 'Show pet', click: () => win && (win.showInactive(), win.setAlwaysOnTop(true, 'floating')) },
         { label: 'Reset position', click: () => { petPos = defaultPos(); settings.x = petPos.x; settings.y = petPos.y; saveSettings(); applyBounds(); push(); } },
         { label: 'Pet', submenu: PetArt.ORDER.map((id) => ({ label: PetArt.PETS[id].label, type: 'radio', checked: settings.look.pet === id, click: () => updateLook({ pet: id }) })) },
@@ -377,21 +468,10 @@ function buildTray() {
         { label: 'Sound pack', submenu: PetSounds.PACK_ORDER.map((id) => ({ label: PetSounds.PACKS[id].label, type: 'radio', checked: settings.look.pack === id, click: () => { updateLook({ pack: id }); previewSound(); } })) },
         { label: 'Volume', submenu: PetSounds.VOLUMES.map((v) => ({ label: `${v}%`, type: 'radio', checked: settings.look.volume === v, click: () => { updateLook({ volume: v }); previewSound(); } })) },
         { label: 'Quiet hours (no sound)', submenu: lookLib.QUIET_ORDER.map((id) => ({ label: lookLib.QUIET[id].label, type: 'radio', checked: settings.look.quiet === id, click: () => updateLook({ quiet: id }) })) },
-        { label: 'Mute sounds', type: 'checkbox', checked: settings.muted, click: (i) => { settings.muted = i.checked; saveSettings(); push(); } },
+        { label: 'Mute sounds', type: 'checkbox', checked: settings.muted, click: (i) => applyBehaviour({ muted: i.checked }) },
         {
           label: 'Gets angry after waiting',
-          submenu: [[1, '1 minute'], [2, '2 minutes'], [5, '5 minutes'], [10, '10 minutes'], [0, 'Never']].map(([min, label]) => ({
-            label,
-            type: 'radio',
-            checked: settings.impatientMin === min,
-            click: () => {
-              settings.impatientMin = min;
-              store.impatientMs = min * 60_000;
-              saveSettings();
-              store.tickOverdue();
-              push();
-            },
-          })),
+          submenu: lookLib.PATIENCE.map(({ min, label }) => ({ label, type: 'radio', checked: settings.impatientMin === min, click: () => applyBehaviour({ impatientMin: min }) })),
         },
         { label: 'Show chats finished today', type: 'checkbox', checked: settings.look.streak, click: (i) => updateLook({ streak: i.checked }) },
         { label: 'Clear finished', click: () => { store.dismissAllDone(); push(); } },
@@ -399,7 +479,7 @@ function buildTray() {
         { label: 'Quit', click: () => app.quit() },
       ])
     );
-  rebuild();
+  rebuildTray();
   tray.on('click', () => win && win.showInactive());
 }
 
@@ -482,7 +562,7 @@ app.whenReady().then(async () => {
   screen.on('display-metrics-changed', () => { petPos = clampToDisplays(petPos.x, petPos.y); applyBounds(); push(); });
   // Dev aid: `electron . --shot=out.png` renders the current state to a PNG, then quits.
   const shot = process.argv.find((a) => a.startsWith('--shot='));
-  if (shot) require('./shot').run(win, shot.slice(7), { store, setPanel, push, setPrefs: updatePrefs, setLook: updateLook, celebrate, panelWin: () => panelWin });
+  if (shot) require('./shot').run(win, shot.slice(7), { store, setPanel, push, setPrefs: updatePrefs, setLook: updateLook, celebrate, openSettings, panelWin: () => panelWin });
 });
 
 app.on('second-instance', () => win && win.showInactive());

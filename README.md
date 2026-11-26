@@ -59,13 +59,19 @@ remembered in `pet-settings.json`.
 
 ## Make it yours
 
-Everything here is in the tray menu (right-click the tray icon) and remembered.
+**Double-click the pet** to open the settings window: a gallery of all 16 pets, a big live preview of the one you
+pick (with a mood switcher, so you can see it happy, worried or angry), and tiles for colour, accessory and mustache.
+Every click applies to the real pet straight away. The *Sound* tab has the sound packs (with buttons to hear each
+one), volume, quiet hours and mute; the *Behaviour* tab has how long the pet waits before it gets angry and the
+finished-today counter. The tray menu (right-click the tray icon) still has every setting except the mustache, plus *Settings...*
+to open the window; both always show the same values. Everything is remembered.
 
 - **Pet:** cat, dog, bunny, bird, penguin, owl, dragon, sprout, blob, ghost, robot, alien, car, sun, moon
   or cloud. Every pet has art for every mood above (sleeping, calm, working, happy, question,
   approval and angry); the speech bubble and chips are the same for all of them.
-- **Colour and accessory:** ten colours (the flushed and angry faces follow the colour you pick) and a
-  bow, top hat, crown or party hat.
+- **Colour, accessory and mustache:** ten colours (the flushed and angry faces follow the colour you pick), a
+  bow, top hat, crown or party hat, and a classic, handlebar or curly mustache. The mustache is a separate choice,
+  so it goes with any hat. (The mustache is in the settings window only.)
 - **Idle animations:** a calm pet blinks and breathes, and every 8 to 20 seconds stretches, yawns, looks
   around or wags its tail (or antenna, flipper, rays). A pet without a tail never wags.
 - **Celebration:** when three chats finish within a minute, confetti and sparkles burst over the pet and
@@ -88,8 +94,8 @@ node scripts/hooks.js install --apply    # writes the hooks (backup: settings.js
 
 Hooks are read by chats at start, so restart chats that were already open.
 Remove them any time with `node scripts/hooks.js uninstall --apply`.
-Tray icon: reset position, pet, colour, accessory, sound pack, volume, quiet hours, mute sounds, anger patience,
-finished-today counter, clear finished, quit.
+Tray icon: settings window, reset position, pet, colour, accessory, sound pack, volume, quiet hours, mute sounds,
+anger patience, finished-today counter, clear finished, quit.
 
 ## Start and stop with Claude
 
@@ -166,7 +172,8 @@ How the watcher behaves (`scripts/watch-claude.ps1`):
 ```powershell
 npm test                                   # state machine, hook receiver, list model, prefs, pets, sounds
 npx electron . --shot=out/mood             # renders every mood + the list to out/*.png
-npx electron . --shot=out/m --pets         # contact sheets: every pet in every mood, colours, accessories, idle actions
+npx electron . --shot=out/m --pets         # contact sheets: every pet in every mood, colours, accessories, mustaches, idle actions
+npx electron . --shot=out/s --settings     # the settings window: each tab and a few looks
 ```
 
 `--shot` never writes the real settings. While your own pet is running, give the screenshot
@@ -176,6 +183,10 @@ run its own port and profile (single-instance lock): `$env:CLAUDE_PET_PORT = '47
 The pets are data in `src/renderer/pets.js`: a pet supplies its body art and a few face measurements, and a
 shared generator draws the eyes and mouth for every mood. To add a pet, add one entry there and run the
 `--pets` sheets; `test/pets.test.js` checks that it covers every mood. Sounds are data in `src/renderer/sounds.js`.
+The pet art is styled by `src/renderer/pet.css`, which only uses classes, so the pet window and the settings window
+(gallery cards and the live preview) share it; the settings window is `settings.html` / `settings.js` and draws pets
+with the same `PetArt.buildPet` as the real pet. A new setting goes into `src/look.js` (validation), the tray in
+`main.js` and a control in `settings.js`.
 
 The list logic (filter, group, sort, pins) lives in `src/renderer/view.js` and is unit tested;
 the DOM around it is not. Clicks and keys are tested with real input events over the DevTools
@@ -190,6 +201,8 @@ node scripts/ui-test.mjs keys Slash b o n   # press keys ('Slash' = /) and print
 node scripts/ui-test.mjs act pin 1          # hover row 1, click its pin (also: mute, x)
 node scripts/ui-test.mjs chain '#opts-toggle' '[data-opt=density]'   # click several elements in one run
 node scripts/ui-test.mjs click '#undo'      # click anything; `view` prints the list, `hover` hovers
+node scripts/ui-test.mjs dblclick           # double-click the pet: the settings window opens and the list closes
+node scripts/ui-test.mjs settings '[data-pet=dog]' '[data-skin=blue]'   # click in the settings window, print what it and the pet show
 ```
 
 The panel closes when the window loses focus, so every command reopens it first. Chats you

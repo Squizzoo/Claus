@@ -69,7 +69,7 @@ test('every pet gets a flush, an angry and a darker colour that differ from its 
 test('a pet with a tail marks it, a custom tail group carries the id', () => {
   for (const id of ORDER) {
     const pet = buildPet(id);
-    assert.equal(pet.hasTail, pet.markup.includes('id="tail"'), id);
+    assert.equal(pet.hasTail, pet.markup.includes('class="tail"'), id);
   }
 });
 
@@ -150,4 +150,30 @@ test('object prototype keys are not pets, skins or accessories', () => {
 test('the sun draws its rays without the tail outline, so the CSS stroke cannot thicken them', () => {
   const { markup } = buildPet('sun');
   assert.equal((markup.match(/stroke="none" d="M75 31/g) || []).length, 12);
+});
+
+test('a mustache is drawn only when asked, on every pet, with every skin and accessory', () => {
+  for (const id of ORDER) {
+    assert.ok(!buildPet(id).markup.includes('class="stache"'), id);
+    for (const m of PetArt.MUSTACHE_ORDER) {
+      const pet = buildPet(id, 'default', 'hat', m);
+      assert.equal(pet.markup.includes('class="stache"'), m !== 'none', `${id} ${m}`);
+      assert.ok(!/sstyle=|NaN|undefined/.test(pet.markup), `${id} ${m}`);
+      assert.ok(pet.markup.includes('class="accessory"'), `${id} keeps its hat`);
+    }
+  }
+});
+
+test('an unknown or inherited mustache id draws nothing', () => {
+  for (const key of ['nope', 'constructor', '__proto__', 'none', undefined]) assert.ok(!buildPet('cat', 'default', 'none', key).markup.includes('stache'), String(key));
+});
+
+test('the mustache is light on a dark skin and dark otherwise', () => {
+  assert.notEqual(buildPet('cat', 'black').vars['--stache'], buildPet('cat').vars['--stache']);
+  assert.equal(buildPet('cat', 'white').vars['--stache'], buildPet('cat').vars['--stache']);
+});
+
+test('a pet with a fixed light face patch keeps a dark mustache on the black skin, a dark screen keeps a light one', () => {
+  assert.equal(buildPet('penguin', 'black').vars['--stache'], buildPet('penguin').vars['--stache']);
+  assert.equal(buildPet('robot').vars['--stache'], buildPet('cat', 'black').vars['--stache']);
 });
