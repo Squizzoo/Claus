@@ -521,3 +521,88 @@ test('a question that turns into an approval is one wait', () => {
   st.applyHook(hook('PostToolUse', { tool_name: 'Bash' }));
   assert.deepEqual(st.takeTimes().waits, [30_000]);
 });
+
+// ---- interrupted chats (Esc fires no Stop) ----
+test('an interrupted turn drops to idle a few seconds after the registry shows idle, not 30 s', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  assert.equal(st.snapshot().mood, 'working');
+  c.advance(10_000);
+  const idleAt = c.now(); // the user pressed Esc here
+  st.syncRegistry([{ sessionId: SID, name: 'x', status: 'idle', statusUpdatedAt: idleAt }]);
+  assert.equal(st.snapshot().mood, 'working', 'the grace has not passed yet');
+  c.advance(3_000);
+  st.syncRegistry([{ sessionId: SID, name: 'x', status: 'idle', statusUpdatedAt: idleAt }]);
+  assert.equal(st.snapshot().mood, 'working', 'still inside the grace');
+  c.advance(1_500);
+  st.syncRegistry([{ sessionId: SID, name: 'x', status: 'idle', statusUpdatedAt: idleAt }]);
+  assert.equal(st.snapshot().mood, 'idle');
+});
+
+test('an interrupted turn is neither finished nor an alert', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  st.takeAlerts();
+  c.advance(8_000);
+  const idleAt = c.now();
+  c.advance(5_000);
+  st.syncRegistry([{ sessionId: SID, name: 'x', status: 'idle', statusUpdatedAt: idleAt }]);
+  assert.equal(st.snapshot().mood, 'idle');
+  assert.equal(st.takeFinished().length, 0);
+  assert.equal(st.takeAlerts().length, 0);
+});
+
+test('a normal Stop wins over the registry going idle at the same moment', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  c.advance(10_000);
+  const idleAt = c.now();
+  st.syncRegistry([{ sessionId: SID, name: 'x', status: 'idle', statusUpdatedAt: idleAt }]); // the registry is a hair faster than the hook
+  c.advance(300);
+  st.applyHook(hook('Stop'));
+  assert.equal(st.snapshot().mood, 'done');
+  c.advance(10_000);
+  st.syncRegistry([{ sessionId: SID, name: 'x', status: 'idle', statusUpdatedAt: idleAt }]);
+  assert.equal(st.snapshot().mood, 'done', 'a finished chat stays finished');
+});
+
+test('an idle registry entry from before the prompt does not cancel a new turn', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  const idleAt = c.now() - 60_000; // the previous turn ended a minute ago
+  st.applyHook(hook('UserPromptSubmit'));
+  c.advance(6_000);
+  st.syncRegistry([{ sessionId: SID, name: 'x', status: 'idle', statusUpdatedAt: idleAt }]); // the registry has not flipped to busy yet
+  assert.equal(st.snapshot().mood, 'working');
+});
+
+test('a pending question or approval is not cleared by an idle registry', () => {
+  for (const [event, extra] of [['PermissionRequest', { tool_name: 'Bash' }], ['PreToolUse', { tool_name: 'AskUserQuestion' }]]) {
+    const c = clock();
+    const st = new SessionStore({ now: c.now });
+    st.applyHook(hook('UserPromptSubmit'));
+    c.advance(2_000);
+    st.applyHook(hook(event, extra));
+    const mood = st.snapshot().mood;
+    c.advance(1_000);
+    const idleAt = c.now();
+    c.advance(20_000);
+    st.syncRegistry([{ sessionId: SID, name: 'x', status: 'idle', statusUpdatedAt: idleAt }]);
+    assert.equal(st.snapshot().mood, mood);
+  }
+});
+
+test('an interrupted turn counts its work up to the moment it went idle, not up to when the pet noticed', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  c.advance(10_000);
+  const idleAt = c.now();
+  c.advance(6_000);
+  st.syncRegistry([{ sessionId: SID, name: 'x', status: 'idle', statusUpdatedAt: idleAt }]);
+  assert.equal(st.snapshot().mood, 'idle');
+  assert.deepEqual(st.takeTimes().work, [10_000]);
+});

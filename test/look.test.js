@@ -95,3 +95,17 @@ test('behaviour: only mute and a known patience get through', () => {
   assert.deepEqual(sanitizeBehaviour(null, cur), cur);
   assert.deepEqual(sanitizeBehaviour({ impatientMin: 10 }), { muted: false, impatientMin: 10 });
 });
+
+test('size and opacity are validated and the size maps to pixels', () => {
+  const L = require('../src/look');
+  assert.equal(DEFAULTS.size, 'm');
+  assert.equal(DEFAULTS.opacity, 100);
+  assert.equal(sanitize({ size: 'xl', opacity: 50 }).size, 'xl');
+  assert.equal(sanitize({ size: 'xl', opacity: 50 }).opacity, 50);
+  assert.equal(sanitize({ size: 'huge', opacity: 10 }).size, 'm');
+  assert.equal(sanitize({ size: 'huge', opacity: 10 }).opacity, 100);
+  assert.equal(sanitize({ opacity: '50' }).opacity, 100); // a string is not a number choice
+  assert.deepEqual(L.SIZE_ORDER.map((id) => L.sizePx(id)), [100, 150, 200, 250]);
+  assert.equal(L.sizePx('nope'), 150);
+  assert.equal(L.sizePx(undefined), 150);
+});

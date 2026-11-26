@@ -3,7 +3,7 @@
 // The helper stays alive between questions: starting PowerShell every second would be far too heavy.
 // Only the Desktop session id (local_<uuid>) crosses this boundary; it is never logged in full.
 const { spawn } = require('child_process');
-const path = require('path');
+const { helperScript } = require('./paths');
 
 const ANSWER_TIMEOUT_MS = 4000;
 
@@ -29,7 +29,7 @@ function createOpenChatWatcher() {
   function start() {
     child = spawn(
       'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(__dirname, 'open-chat.ps1')],
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', helperScript('open-chat.ps1')],
       { windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] }
     );
     child.stdout.setEncoding('utf8');
@@ -42,7 +42,9 @@ function createOpenChatWatcher() {
         settle(parseAnswer(line));
       }
     });
+    const mine = child;
     const gone = () => {
+      if (child !== mine) return; // an old helper that was killed on purpose must not answer a newer question
       child = null;
       buffer = '';
       settle(null);

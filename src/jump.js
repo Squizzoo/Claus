@@ -10,9 +10,15 @@
 
 const HOST_ID = /^local_[A-Za-z0-9-]{1,64}$/;
 
+// Test aid for the self-check (jump-health.js): on a test instance (CLAUDE_PET_PORT set) CLAUDE_PET_JUMP_ROUTE replaces the route
+// name, so a route that does not exist can be tried without touching Claude Desktop. Ignored in a normal run.
+const ROUTE_OVERRIDE = /^[a-z][a-z-]{0,29}$/;
+
 function jumpUrl(hostSessionId, strategy = process.env.CLAUDE_PET_JUMP || 'continue') {
   if (typeof hostSessionId !== 'string' || !HOST_ID.test(hostSessionId)) return null;
-  const route = strategy === 'needs-input' ? 'needs-input' : 'continue';
+  let route = strategy === 'needs-input' ? 'needs-input' : 'continue';
+  const forced = process.env.CLAUDE_PET_JUMP_ROUTE;
+  if (process.env.CLAUDE_PET_PORT && forced && ROUTE_OVERRIDE.test(forced)) route = forced;
   return `claude://code/${route}?session=${encodeURIComponent(hostSessionId)}`;
 }
 

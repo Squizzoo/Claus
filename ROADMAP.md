@@ -66,19 +66,23 @@ Small changes with a big payoff now that the chat list is getting long.
 - [x] **Terminal chats.** A row click raises the window the chat's process runs in (terminal or VS Code). The whole
       window, not the tab; a default-terminal hand-off has no such window.
 
-## Phase 5: Behaviour and platform
+## Phase 5: Behaviour and platform **[done]**
 
-- [ ] **Settings window** instead of tray-only. Partly done: double-click the pet for a window with a pet
-      gallery, live preview, colour, accessory, mustache, sounds, quiet hours, patience and the
-      counter (the tray keeps working). Still open: size and opacity, once they exist.
-- [ ] **Size and opacity**, plus click-through while idle.
-- [ ] **Snap to corners or edges**, optional "stay above fullscreen apps".
-- [ ] **Multi-monitor modes:** follow the active monitor or stay put.
-- [ ] **Robustness.** Handle interrupted chats (Esc fires no `Stop`, see README
-      "Known limits"). Self-check that warns in the tray when the `claude://code/continue`
-      route stops working after a Claude Desktop update.
-- [ ] **Packaging.** Installer or portable `.exe` via electron-builder, auto-update,
-      first-run hook installer so setup is not manual npm and PowerShell steps.
+- [x] **Settings window** instead of tray-only: appearance, sound, notifications, behaviour, window and system tabs
+      (the tray keeps working and always shows the same values).
+- [x] **Size and opacity**, plus click-through while idle. Four sizes (100 to 250 px) and five opacities; the window is
+      resized once when the size changes. Click-through while no chat needs you; Ctrl + hover grabs the pet.
+- [x] **Snap to corners or edges**, optional "stay above fullscreen apps" (not above exclusive-fullscreen games).
+- [x] **Multi-monitor modes:** stay put, or follow the window you work in (the monitor of the foreground window, after 3 s).
+- [x] **Robustness.** An interrupted chat (Esc fires no `Stop`) drops to idle 4 s after the registry shows it idle instead of
+      after 30 s (a cancelled question or approval still stays, see README "Known limits"). A self-check after each jump
+      warns in the tray and the *System* tab when the `claude://code/continue` route seems to have stopped working, or when
+      Claude Desktop was updated and opening chats has not been checked since. Fixed on the way: the open-chat helper
+      read only the first of Claude Desktop's two web documents and always answered "none".
+- [x] **Packaging.** `npm run dist` builds a per-user NSIS installer and a portable exe (electron-builder); the installed
+      version updates from GitHub releases (a click to download, a click to restart), starts with Windows on request and can
+      hide while Claude Desktop is not running. The first run asks once before adding the hooks to Claude Code's settings.
+      Open: code signing (SmartScreen warns about an unsigned installer), a nicer app icon than the tray cat head.
 
 ## Phase 6: Stretch ideas
 
@@ -94,7 +98,7 @@ Small changes with a big payoff now that the chat list is getting long.
 2. ~~Phase 2: pet-picker abstraction and the rest of pet personality~~ (done).
 3. ~~Phase 3: toasts and snooze~~ (done, with the rest of the phase).
 4. ~~Phase 4: durations, tokens, daily summary, quick actions, terminal focus~~ (done).
-5. Phase 5: settings panel, once there are enough options to need one.
-6. Packaging, when the feature set feels right.
+5. ~~Phase 5: settings window, size and placement, robustness, packaging~~ (done).
+6. Phase 6: stretch ideas, as they seem worth it.
 
 Each phase fits on its own branch.

@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard, dialog } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -17,16 +17,25 @@ const PetView = require('./renderer/view');
 const celebrateLib = require('./celebrate');
 const dailyLib = require('./daily');
 const notifyLib = require('./notify');
+const placeLib = require('./placement');
+const jumpHealthLib = require('./jump-health');
+const systemLib = require('./system');
+const hooksLib = require('./hooks-install');
+const updaterLib = require('./updater');
+const { createClaudeWatcher } = require('./claude-running');
 const { showToast } = require('./toast');
 const { createTranscriptReader } = require('./transcript');
 const { rowMenuTemplate, vscodeUrl, terminalCommand } = require('./row-menu');
 
 const PORT = Number(process.env.CLAUDE_PET_PORT) || DEFAULT_PORT;
-const PET = 150; // collapsed window: the pet only
+let PET = lookLib.sizePx(lookLib.DEFAULTS.size); // collapsed window: the pet only; the pixel size of the chosen look.size (set in createWindow)
 const PANEL_W = 300; // expanded window width
 const MAX_PANEL = 480; // tallest list the window will grow to
 const MARGIN = 16;
 
+// The settings folder is always %APPDATA%\claude-pet, whatever the app is called when packaged (a productName would otherwise move it to
+// %APPDATA%\Claus and lose position, look, pins and stats). A test run with --user-data-dir keeps its own folder.
+if (!app.commandLine.hasSwitch('user-data-dir')) app.setPath('userData', path.join(app.getPath('appData'), 'claude-pet'));
 if (!app.requestSingleInstanceLock()) app.quit();
 app.setAppUserModelId('com.claus.pet'); // gives the Windows toasts a stable identity
 
@@ -39,11 +48,12 @@ let settingsWin = null; // the settings window (a normal window, opened by doubl
 let rebuildTray = () => {}; // set by buildTray; called when a setting changes elsewhere so the tray checkmarks stay right
 let tray = null;
 let server = null;
-let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, notify: notifyLib.DEFAULTS, streak: celebrateLib.EMPTY, daily: dailyLib.EMPTY }; // impatientMin 0 = never angry
+let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, notify: notifyLib.DEFAULTS, place: placeLib.DEFAULTS, system: systemLib.DEFAULTS, jumpHealth: jumpHealthLib.EMPTY, streak: celebrateLib.EMPTY, daily: dailyLib.EMPTY }; // impatientMin 0 = never angry
 let petPos = { x: 0, y: 0 }; // top-left of the pet, the source of truth for position
 let panelH = 0; // extra height wanted by the list (0 = collapsed)
 let layout = { side: 'right', vertical: 'up' };
 let drag = null;
+let followState = { displayId: null, since: 0 }; // the monitor the user's window is on, and since when
 
 // ---------- persistence ----------
 const settingsFile = () => path.join(app.getPath('userData'), 'pet-settings.json');
@@ -56,6 +66,11 @@ function loadSettings() {
   settings.prefs = prefsLib.sanitize(settings.prefs);
   settings.look = lookLib.sanitize(settings.look);
   settings.notify = notifyLib.sanitize(settings.notify);
+  settings.place = placeLib.sanitize(settings.place);
+  PET = lookLib.sizePx(settings.look.size);
+  settings.system = systemLib.sanitize(settings.system);
+  settings.jumpHealth = jumpHealthLib.sanitize(settings.jumpHealth);
+  jumpHealth = settings.jumpHealth;
   settings.streak = celebrateLib.sanitizeStreak(settings.streak);
   settings.daily = dailyLib.sanitize(settings.daily);
   Object.assign(settings, lookLib.sanitizeBehaviour(settings, lookLib.BEHAVIOUR_DEFAULTS));
@@ -140,6 +155,12 @@ function applyBounds() {
 }
 
 // ---------- window ----------
+/** The opacity of the pet window (the chosen look.opacity); the list window always stays fully opaque. */
+const petOpacity = () => settings.look.opacity / 100;
+/** Always on top. `screen-saver` is the level that also stays above fullscreen apps (not above exclusive-fullscreen games). */
+function raise(w) {
+  if (w && !w.isDestroyed()) w.setAlwaysOnTop(true, settings.place.fullscreen ? 'screen-saver' : 'floating');
+}
 function makeWindow(role, bounds, extra) {
   const w = new BrowserWindow({
     ...bounds,
@@ -153,6 +174,7 @@ function makeWindow(role, bounds, extra) {
     hasShadow: false,
     show: false,
     alwaysOnTop: true,
+    opacity: role === 'pet' ? petOpacity() : 1,
     backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -162,7 +184,7 @@ function makeWindow(role, bounds, extra) {
     },
     ...extra,
   });
-  w.setAlwaysOnTop(true, 'floating');
+  raise(w);
   w.setMenuBarVisibility(false);
   w.loadFile(path.join(__dirname, 'renderer', 'index.html'), { query: { role } });
   // webContents never navigates away or opens windows
@@ -254,6 +276,7 @@ function push(opts = {}) {
     snoozeUntil: snoozed() ? settings.notify.snoozeUntil : 0,
     idleActions: !SHOT_RUN, // screenshots must not catch the pet half-way through a random yawn
     layout,
+    petSize: PET,
   };
   win.webContents.send('state', { ...snap, expanded: false, paintId: opts.petPaintId });
   if (panelWin && !panelWin.isDestroyed()) panelWin.webContents.send('state', { ...snap, expanded: panelH > 0, paintId: opts.paintId });
@@ -391,10 +414,10 @@ function showPet(animate = false, holdMs = 0) {
   petShown = true;
   stopSlide();
   if (!animate) {
-    win.setOpacity(1);
+    win.setOpacity(petOpacity());
     win.setBounds(petBounds());
     win.showInactive();
-    win.setAlwaysOnTop(true, 'floating');
+    raise(win);
     return;
   }
   // Shown off screen at opacity 0 first, so the old mood never flashes; it slides in once the new state is painted.
@@ -402,10 +425,10 @@ function showPet(animate = false, holdMs = 0) {
   win.setOpacity(0);
   win.setBounds({ x: from.x, y: from.y, width: PET, height: PET });
   win.showInactive();
-  win.setAlwaysOnTop(true, 'floating');
+  raise(win);
   push({ petPaintId: afterPaint(() => {
     if (!petShown || !win || win.isDestroyed()) return;
-    win.setOpacity(1);
+    win.setOpacity(petOpacity());
     slide(from, { x: petPos.x, y: petPos.y });
   }) });
 }
@@ -418,9 +441,35 @@ function hidePet() {
   });
 }
 
+// ---------- click-through ----------
+// While nothing needs you the pet window lets clicks fall through to what is below it. Ctrl + hover gets it back (the forwarded mouse moves tell us).
+let clickThrough = false;
+let grabbedAt = 0;
+function updateClickThrough(snap) {
+  if (!win || win.isDestroyed()) return;
+  const want = placeLib.clickThroughDecision({
+    enabled: settings.place.clickThrough && petShown,
+    attention: snap.attention,
+    panelOpen: panelH > 0,
+    dragging: Boolean(drag),
+    settingsOpen: Boolean(settingsWin && !settingsWin.isDestroyed()),
+    grabbedAt,
+    now: Date.now(),
+  });
+  if (want === clickThrough) return;
+  clickThrough = want;
+  debugLog(`click-through ${want ? 'on' : 'off'}`);
+  win.setIgnoreMouseEvents(want, want ? { forward: true } : undefined);
+}
+ipcMain.on('pet-grab', () => {
+  grabbedAt = Date.now();
+  updateClickThrough(store.snapshot());
+});
+
 /** Called after every push and once a second (the grace before hiding runs on time, not on events). */
 function updateAutoHide(snap) {
   if (!win || win.isDestroyed() || SHOT_RUN) return;
+  updateClickThrough(snap);
   const mode = settings.notify.autoHide;
   const now = Date.now();
   const sessions = snap.sessions.length;
@@ -438,6 +487,7 @@ function updateAutoHide(snap) {
     settingsOpen: Boolean(settingsWin && !settingsWin.isDestroyed()),
     manualShowUntil,
     lastNeedAt,
+    forceHide: settings.system.followClaude && claudeIsGone,
     now,
   });
   if (decision === 'show') {
@@ -446,6 +496,46 @@ function updateAutoHide(snap) {
   } else if (decision === 'hide') {
     debugLog(`autohide hide (${mode})`);
     hidePet();
+  }
+}
+
+// ---------- follow the active monitor ----------
+// "Active" is the monitor of the window the user works in (the foreground window, asked from the PowerShell helper), not the one the mouse is on.
+// The pet keeps its relative place (bottom right stays bottom right) and only moves once the new monitor has been the active one for a few seconds.
+let following = false;
+async function followActiveMonitor() {
+  if (following || SHOT_RUN || settings.place.monitor !== 'follow' || !win || win.isDestroyed() || !petShown) return;
+  following = true;
+  try {
+    const rect = await claudeWatcher().foreground();
+    if (!rect || settings.place.monitor !== 'follow') return;
+    const dip = screen.screenToDipRect(null, rect);
+    const display = screen.getDisplayNearestPoint({ x: Math.round(dip.x + dip.width / 2), y: Math.round(dip.y + dip.height / 2) });
+    const now = Date.now();
+    if (display.id !== followState.displayId) followState = { displayId: display.id, since: now };
+    const here = displayFor(petPos.x, petPos.y, PET, PET);
+    if (!placeLib.shouldFollow({
+      monitor: settings.place.monitor,
+      activeDisplayId: followState.displayId,
+      currentDisplayId: here.id,
+      candidateSince: followState.since,
+      now,
+      dragging: Boolean(drag),
+      panelOpen: panelH > 0,
+      settingsOpen: Boolean(settingsWin && !settingsWin.isDestroyed()),
+    })) return;
+    const from = { x: petPos.x, y: petPos.y };
+    const to = placeLib.followTarget(placeLib.relativeOf(from, here.workArea, PET), display.workArea, PET);
+    debugLog(`follow: moving to display ${display.id}`);
+    petPos = to;
+    settings.x = to.x;
+    settings.y = to.y;
+    saveSettings();
+    slide(from, to, () => applyBounds());
+  } catch (err) {
+    debugLog(`follow failed: ${err.message}`);
+  } finally {
+    following = false;
   }
 }
 
@@ -481,6 +571,161 @@ function setSnooze(minutes) {
   updateNotify({ snoozeUntil: notifyLib.snoozeEnd(Number(minutes)) });
 }
 
+// ---------- system: hooks, start with Windows, follow Claude Desktop, updates ----------
+const FORCE_SETUP = process.argv.includes('--setup'); // ask the first-run question even from a dev checkout
+const IS_PORTABLE = Boolean(process.env.PORTABLE_EXECUTABLE_DIR); // set by the portable exe
+const caps = () => systemLib.capabilities({ packaged: app.isPackaged, portable: IS_PORTABLE });
+
+let hooksCache = { at: 0, value: null };
+/** The state of the pet's hooks in Claude Code's settings file; read at most every few seconds (it is part of every settings push). */
+function hooksStatus(fresh = false) {
+  const now = Date.now();
+  if (fresh || !hooksCache.value || now - hooksCache.at > 5000) hooksCache = { at: now, value: hooksLib.status({ port: PORT }) };
+  return hooksCache.value;
+}
+
+/**
+ * Adds or removes the pet's hooks in ~/.claude/settings.json, after the user has seen what changes and said yes in a dialog.
+ * Resolves with 'done', 'cancelled', 'unchanged' or 'failed'. The file is backed up first; other hooks are never touched.
+ */
+async function changeHooks(action, parent) {
+  const box = (options) => {
+    const p = parent && !parent.isDestroyed() ? parent : null;
+    return p ? dialog.showMessageBox(p, options) : dialog.showMessageBox(options);
+  };
+  let plan;
+  try {
+    plan = hooksLib.plan({ action, port: PORT });
+  } catch (err) {
+    debugLog(`hooks ${action} not possible: ${err.message}`);
+    await box({ type: 'error', title: 'Claus', message: 'Claude Code settings could not be changed', detail: `${hooksLib.defaultFile()}\n\n${err.message}` });
+    return 'failed';
+  }
+  if (!plan.changed) return 'unchanged';
+  const installing = action === 'install';
+  const { response } = await box({
+    type: 'question',
+    title: 'Claus',
+    buttons: [installing ? 'Install hooks' : 'Remove hooks', 'Not now'],
+    defaultId: 0,
+    cancelId: 1,
+    message: installing ? 'Let Claus hear from Claude Code?' : 'Remove the Claus hooks from Claude Code?',
+    detail: installing
+      ? `Claus needs a few hooks in Claude Code's settings file to know when a chat finishes or asks something:\n\n${plan.file}\n\n` +
+        `It adds ${plan.petEvents.length} entries (${plan.petEvents.join(', ')}) that only POST to this computer (127.0.0.1:${plan.port}). ` +
+        `Your own hooks stay as they are, and a backup is saved next to the file as settings.json.pet-bak.\n\n` +
+        `Claus keeps only the chat id, the event name, the tool name and the folder; prompts and tool input are dropped.`
+      : `This removes only the Claus entries from:\n\n${plan.file}\n\nYour other hooks stay, and a backup is saved as settings.json.pet-bak. The pet will stop hearing from Claude Code until you install them again.`,
+  });
+  if (response !== 0) return 'cancelled';
+  try {
+    hooksLib.apply(plan);
+    debugLog(`hooks ${action} done`);
+  } catch (err) {
+    debugLog(`hooks ${action} failed: ${err.message}`);
+    await box({ type: 'error', title: 'Claus', message: 'Claude Code settings could not be changed', detail: err.message });
+    return 'failed';
+  }
+  hooksStatus(true);
+  sendSettings(true);
+  return 'done';
+}
+
+/** The very first start of an installed build: offer the hooks once (never nags again, whatever the answer was). */
+async function firstRun() {
+  const st = hooksStatus(true);
+  if (!systemLib.shouldAskSetup({ settings: settings.system, firstRun: caps().firstRun, forced: FORCE_SETUP, hooksComplete: st.complete, hooksFileExists: st.exists || st.missing })) return;
+  settings.system = systemLib.merge(settings.system, { setupAsked: true });
+  saveSettings();
+  debugLog('first run: offering the hooks');
+  await changeHooks('install', null);
+}
+
+function updateSystem(patch) {
+  const before = settings.system;
+  settings.system = systemLib.merge(settings.system, patch);
+  if (settings.system.login !== before.login && caps().login) {
+    try {
+      app.setLoginItemSettings({ openAtLogin: settings.system.login });
+      loginCache = { at: 0, value: false }; // read it again
+    } catch (err) {
+      debugLog(`login item failed: ${err.message}`);
+    }
+  }
+  if (settings.system.followClaude !== before.followClaude) {
+    claudeMisses = 0;
+    claudeIsGone = false;
+    if (settings.system.followClaude) pollClaude();
+  }
+  saveSettings();
+  rebuildTray();
+  push();
+}
+
+// Follow Claude Desktop: while it is not running the pet hides (the app and the tray stay), and it comes back with Claude.
+let claudeMisses = 0;
+let claudeIsGone = false;
+let pollingClaude = false;
+async function pollClaude() {
+  if (!settings.system.followClaude || pollingClaude || SHOT_RUN) return;
+  pollingClaude = true;
+  try {
+    claudeMisses = systemLib.missesAfter(claudeMisses, await claudeWatcher().state());
+    const gone = systemLib.claudeGone(claudeMisses);
+    if (gone !== claudeIsGone) {
+      claudeIsGone = gone;
+      debugLog(`claude desktop ${gone ? 'gone: hiding the pet' : 'is back'}`);
+      updateAutoHide(store.snapshot());
+    }
+  } finally {
+    pollingClaude = false;
+  }
+}
+
+const updater = updaterLib.createUpdater({
+  supported: app.isPackaged && !IS_PORTABLE && !SHOT_RUN,
+  onChange: () => {
+    rebuildTray();
+    sendSettings(true);
+  },
+  log: debugLog,
+});
+function updateAction(what) {
+  if (what === 'check') updater.check();
+  else if (what === 'download') updater.download();
+  else if (what === 'install') updater.install();
+}
+
+let loginCache = { at: 0, value: false }; // reading the login item is a registry lookup; it is part of every settings push
+function systemSnapshot() {
+  const c = caps();
+  const u = updater.state();
+  const h = hooksStatus();
+  let login = false;
+  if (c.login) {
+    const now = Date.now();
+    if (now - loginCache.at > 5000) {
+      try {
+        loginCache = { at: now, value: app.getLoginItemSettings().openAtLogin };
+      } catch {
+        loginCache = { at: now, value: false }; // not available
+      }
+    }
+    login = loginCache.value;
+  }
+  return {
+    followClaude: settings.system.followClaude,
+    login,
+    loginAvailable: c.login,
+    updatesAvailable: c.updates,
+    version: app.getVersion(),
+    portable: IS_PORTABLE,
+    packaged: app.isPackaged,
+    hooks: { exists: h.exists, missing: Boolean(h.missing), installed: h.installed, total: Object.keys(hooksLib.EVENTS).length, complete: h.complete, file: h.file, error: h.error || '' },
+    update: { status: u.status, version: u.version, percent: u.percent, text: updaterLib.describe(u) },
+  };
+}
+
 // ---------- settings window ----------
 /** What the settings window shows: the look, the other settings and the choices it offers for them. */
 function settingsSnapshot() {
@@ -495,6 +740,12 @@ function settingsSnapshot() {
     notifyChoices: { toast: notifyLib.TOAST, kinds: notifyLib.KINDS, remind: notifyLib.REMIND, autoHide: notifyLib.AUTO_HIDE, snooze: notifyLib.SNOOZE },
     quiet: lookLib.QUIET_ORDER.map((id) => ({ id, label: lookLib.QUIET[id].label })),
     patience: lookLib.PATIENCE,
+    sizes: lookLib.SIZE_ORDER.map((id) => ({ id, label: lookLib.SIZES[id].label, px: lookLib.SIZES[id].px })),
+    opacities: lookLib.OPACITIES,
+    place: settings.place,
+    placeChoices: { snap: placeLib.SNAP, monitor: placeLib.MONITOR },
+    jump: { status: jumpHealthLib.status(jumpHealth), version: jumpHealth.version, okVersion: jumpHealth.okVersion },
+    system: systemSnapshot(),
   };
 }
 let lastSettingsSent = '';
@@ -595,7 +846,7 @@ ipcMain.on('drag-start', () => {
   if (!petShown) {
     petShown = true; // grabbed while sliding out: it stays
     lastNeedAt = Date.now();
-    win.setOpacity(1);
+    win.setOpacity(petOpacity());
   }
   const c = screen.getCursorScreenPoint();
   drag = { cx: c.x, cy: c.y, px: petPos.x, py: petPos.y };
@@ -612,6 +863,7 @@ ipcMain.on('drag-end', () => {
   if (!drag) return;
   drag = null;
   petPos = clampToDisplays(petPos.x, petPos.y);
+  petPos = placeLib.snapPosition(petPos, displayFor(petPos.x, petPos.y, PET, PET).workArea, PET, settings.place.snap, MARGIN);
   settings.x = petPos.x;
   settings.y = petPos.y;
   saveSettings();
@@ -628,15 +880,77 @@ async function jumpTo(id) {
   push();
   // Raise first (it waits for a hidden/minimised window to appear), open the chat at the same time.
   const raised = focusClaude();
+  let opened = false;
   try {
     await shell.openExternal(url);
+    opened = true;
     debugLog(`jump ${id.slice(0, 8)} opened`);
   } catch (err) {
     debugLog(`jump ${id.slice(0, 8)} openExternal failed: ${err.message}`);
   }
-  debugLog(`jump ${id.slice(0, 8)} focus: ${await raised}`);
+  const focus = await raised;
+  debugLog(`jump ${id.slice(0, 8)} focus: ${focus}`);
+  if (opened) verifyJump(store.hostIdOf(id), focus === 'focused'); // not awaited: the self-check must never delay the jump
   return true;
 }
+
+// ---------- self-check of the jump route ----------
+// Claude Desktop can change its claude://code/continue route in an update. After a jump, look at which chat the foreground Claude
+// window shows: two misses in a row put a warning in the tray (jump-health.js decides, this only looks).
+let jumpHealth = jumpHealthLib.EMPTY;
+const JUMP_CHECK_TRIES = 8;
+const JUMP_CHECK_GAP_MS = 500;
+let jumpCheckSeq = 0;
+async function verifyJump(wanted, focused) {
+  if (!wanted || SHOT_RUN) return;
+  const mine = ++jumpCheckSeq; // only the latest jump is checked: older ones would see the newer jump's chat and count one miss twice
+  const version = await readClaudeVersion();
+  let answer;
+  const seen = [];
+  for (let i = 0; i < JUMP_CHECK_TRIES; i++) {
+    await new Promise((r) => setTimeout(r, JUMP_CHECK_GAP_MS));
+    if (mine !== jumpCheckSeq) return;
+    const got = await openChat.query();
+    seen.push(got === undefined ? 'busy' : got ? got.slice(0, 14) : 'none');
+    if (got === undefined) continue; // the helper was busy with the one-second loop: ask again
+    answer = got;
+    if (got === wanted) break;
+  }
+  if (mine !== jumpCheckSeq) return;
+  const verdict = jumpHealthLib.outcome({ focused, openHostId: answer, wanted });
+  debugLog(`jump check: ${verdict ? (verdict.ok ? 'ok' : 'miss') : 'no verdict'} (answers: ${seen.join(' ')})`);
+  if (!verdict) return;
+  const before = jumpHealthLib.status(jumpHealth);
+  jumpHealth = jumpHealthLib.record(jumpHealthLib.seenVersion(jumpHealth, version), { ok: verdict.ok });
+  settings.jumpHealth = jumpHealth;
+  saveSettings();
+  if (jumpHealthLib.status(jumpHealth) !== before) {
+    debugLog(`jump route is now ${jumpHealthLib.status(jumpHealth)}`);
+    rebuildTray();
+    sendSettings();
+  }
+}
+/** The running Claude Desktop version, '' when unknown. A change flips the self-check to "unverified" until a jump works again. */
+async function readClaudeVersion() {
+  const claude = await claudeWatcher().state();
+  const version = claude ? claude.version : '';
+  if (version) {
+    const before = jumpHealthLib.status(jumpHealth);
+    jumpHealth = jumpHealthLib.seenVersion(jumpHealth, version);
+    if (jumpHealth !== settings.jumpHealth) {
+      settings.jumpHealth = jumpHealth;
+      saveSettings();
+      if (jumpHealthLib.status(jumpHealth) !== before) {
+        rebuildTray();
+        sendSettings();
+      }
+    }
+  }
+  return version;
+}
+let claudeWatcherInstance = null;
+/** The PowerShell helper for "is Claude running, which version, which window is in front"; only started when first asked. */
+const claudeWatcher = () => claudeWatcherInstance || (claudeWatcherInstance = createClaudeWatcher());
 /**
  * A chat that does not run in Claude Desktop (a terminal, VS Code): raise the window its process lives in.
  * A terminal with tabs comes forward as a whole window; the pet cannot pick the tab.
@@ -751,10 +1065,24 @@ function updatePrefs(patch) {
 ipcMain.on('set-prefs', (_e, patch) => updatePrefs(patch));
 // The pet's look (pet, colour, accessory, sound): chosen from the tray.
 function updateLook(patch) {
+  const before = settings.look;
   settings.look = lookLib.merge(settings.look, patch);
+  if (settings.look.size !== before.size) resizePet(lookLib.sizePx(before.size));
+  if (settings.look.opacity !== before.opacity && win && !win.isDestroyed() && petShown) win.setOpacity(petOpacity());
   saveSettings();
   rebuildTray();
   push();
+}
+/** A new pet size: the window is resized once (a single blink, only when the setting changes) around the pet's centre. */
+function resizePet(oldPx) {
+  stopSlide();
+  PET = lookLib.sizePx(settings.look.size);
+  const moved = placeLib.resizeAnchor(petPos, oldPx, PET);
+  petPos = clampToDisplays(moved.x, moved.y);
+  petPos = placeLib.snapPosition(petPos, displayFor(petPos.x, petPos.y, PET, PET).workArea, PET, settings.place.snap, MARGIN); // a pet snapped to a corner stays in it
+  settings.x = petPos.x;
+  settings.y = petPos.y;
+  applyBounds();
 }
 /** Mute and the patience live outside settings.look; only known keys with valid values are applied. */
 function applyBehaviour(patch) {
@@ -791,24 +1119,77 @@ ipcMain.on('set-notify', (_e, patch) => {
   const { toast, toastKinds, remindMin, autoHide } = patch && typeof patch === 'object' ? patch : {};
   updateNotify({ toast, toastKinds, remindMin, autoHide }); // the snooze has its own message: only its presets are accepted
 });
+/** Placement settings (snap, above fullscreen, monitors, click-through): validated, applied, saved. */
+function updatePlace(patch) {
+  const before = settings.place;
+  settings.place = placeLib.merge(settings.place, patch);
+  if (settings.place.fullscreen !== before.fullscreen) {
+    raise(win);
+    raise(panelWin);
+  }
+  if (settings.place.snap !== before.snap && settings.place.snap !== 'off' && win && !win.isDestroyed() && !drag) {
+    // switching snapping on pulls the pet in at once, so the effect is visible
+    petPos = placeLib.snapPosition(petPos, displayFor(petPos.x, petPos.y, PET, PET).workArea, PET, settings.place.snap, MARGIN);
+    settings.x = petPos.x;
+    settings.y = petPos.y;
+    applyBounds();
+  }
+  if (settings.place.monitor !== before.monitor) followState = { displayId: null, since: 0 };
+  saveSettings();
+  rebuildTray();
+  push();
+}
+ipcMain.on('set-place', (_e, patch) => updatePlace(patch));
+ipcMain.on('set-system', (_e, patch) => {
+  const { login, followClaude } = patch && typeof patch === 'object' ? patch : {};
+  updateSystem({ login, followClaude }); // setupAsked is the app's own business
+});
+ipcMain.on('hooks-action', (_e, action) => {
+  if (action === 'install' || action === 'uninstall') changeHooks(action, settingsWin);
+});
+ipcMain.on('update-action', (_e, what) => updateAction(what));
 ipcMain.on('snooze', (_e, minutes) => setSnooze(minutes));
 ipcMain.on('preview-sound', (_e, req) => previewSound(req));
 
 // ---------- tray ----------
+const JUMP_WARNING = 'Opening a chat from the list no longer seems to work (Claude Desktop may have changed)';
+/** Tray entries about updates: nothing at all for builds that cannot update. */
+function updateTrayItems() {
+  if (!caps().updates) return [];
+  const u = updater.state();
+  // A line only while there is something to act on or to wait for; a failed check (no release yet, no network) stays in the System tab.
+  const items = ['available', 'downloading', 'ready'].includes(u.status) ? [{ label: updaterLib.describe(u), enabled: false }] : [];
+  if (u.status === 'available') items.push({ label: 'Download the update', click: () => updater.download() });
+  else if (u.status === 'ready') items.push({ label: 'Restart to update', click: () => updater.install() });
+  else if (u.status !== 'checking' && u.status !== 'downloading') items.push({ label: 'Check for updates', click: () => updater.check() });
+  return items;
+}
 function buildTray() {
   const img = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'tray.png'));
   tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img);
   tray.setToolTip('Claus');
   rebuildTray = () => {
-    tray.setToolTip(snoozed() ? `Claus (snoozed until ${notifyLib.clock(settings.notify.snoozeUntil)})` : 'Claus');
+    // only a route that seems to be broken is worth a tray warning; "Claude was updated, not checked yet" is a note in the System tab
+    const warning = jumpHealthLib.status(jumpHealth) === 'broken' ? JUMP_WARNING : '';
+    tray.setToolTip(`${snoozed() ? `Claus (snoozed until ${notifyLib.clock(settings.notify.snoozeUntil)})` : 'Claus'}${warning ? `\n${warning}` : ''}`);
     tray.setContextMenu(
       Menu.buildFromTemplate([
+        ...(warning ? [{ label: `⚠ ${warning}`, click: () => openSettings() }, { type: 'separator' }] : []),
         { label: 'Settings...', click: () => openSettings() },
         { label: 'Show pet', click: () => showPet(false, 30_000) },
+        ...(caps().login ? [{ label: 'Start with Windows', type: 'checkbox', checked: systemSnapshot().login, click: (i) => updateSystem({ login: i.checked }) }] : []),
+        { label: 'Hide while Claude Desktop is not running', type: 'checkbox', checked: settings.system.followClaude, click: (i) => updateSystem({ followClaude: i.checked }) },
+        ...updateTrayItems(),
         { label: 'Reset position', click: () => { petPos = defaultPos(); settings.x = petPos.x; settings.y = petPos.y; saveSettings(); applyBounds(); push(); } },
         { label: 'Pet', submenu: PetArt.ORDER.map((id) => ({ label: PetArt.PETS[id].label, type: 'radio', checked: settings.look.pet === id, click: () => updateLook({ pet: id }) })) },
         { label: 'Colour', submenu: PetArt.SKIN_ORDER.map((id) => ({ label: PetArt.SKINS[id].label, type: 'radio', checked: settings.look.skin === id, click: () => updateLook({ skin: id }) })) },
         { label: 'Accessory', submenu: PetArt.ACCESSORY_ORDER.map((id) => ({ label: PetArt.ACCESSORIES[id].label, type: 'radio', checked: settings.look.accessory === id, click: () => updateLook({ accessory: id }) })) },
+        { label: 'Size', submenu: lookLib.SIZE_ORDER.map((id) => ({ label: lookLib.SIZES[id].label, type: 'radio', checked: settings.look.size === id, click: () => updateLook({ size: id }) })) },
+        { label: 'Opacity', submenu: lookLib.OPACITIES.map((v) => ({ label: `${v}%`, type: 'radio', checked: settings.look.opacity === v, click: () => updateLook({ opacity: v }) })) },
+        { label: 'Snap to', submenu: placeLib.SNAP.map(({ id, label }) => ({ label, type: 'radio', checked: settings.place.snap === id, click: () => updatePlace({ snap: id }) })) },
+        { label: 'Monitors', submenu: placeLib.MONITOR.map(({ id, label }) => ({ label, type: 'radio', checked: settings.place.monitor === id, click: () => updatePlace({ monitor: id }) })) },
+        { label: 'Stay above fullscreen apps', type: 'checkbox', checked: settings.place.fullscreen, click: (i) => updatePlace({ fullscreen: i.checked }) },
+        { label: 'Click-through while nothing needs me (Ctrl + hover to grab)', type: 'checkbox', checked: settings.place.clickThrough, click: (i) => updatePlace({ clickThrough: i.checked }) },
         { label: 'Sound pack', submenu: PetSounds.PACK_ORDER.map((id) => ({ label: PetSounds.PACKS[id].label, type: 'radio', checked: settings.look.pack === id, click: () => { updateLook({ pack: id }); previewSound(); } })) },
         { label: 'Volume', submenu: PetSounds.VOLUMES.map((v) => ({ label: `${v}%`, type: 'radio', checked: settings.look.volume === v, click: () => { updateLook({ volume: v }); previewSound(); } })) },
         { label: 'Quiet hours (no sound)', submenu: lookLib.QUIET_ORDER.map((id) => ({ label: lookLib.QUIET[id].label, type: 'radio', checked: settings.look.quiet === id, click: () => updateLook({ quiet: id }) })) },
@@ -875,6 +1256,18 @@ app.whenReady().then(async () => {
     setInterval(() => refreshTokens(), 10_000); // chats that are still running move their total between hooks
   }
   setInterval(() => updateAutoHide(store.snapshot()), 1000); // the grace before the pet hides runs on time, not on events
+  if (!SHOT_RUN) {
+    // which monitor the window the user works in is on (only asked while "follow" is on), and which Claude version runs (every few minutes)
+    setInterval(followActiveMonitor, 1000);
+    setInterval(pollClaude, 3000);
+    if (caps().updates) {
+      setTimeout(() => updater.check(), 10_000);
+      setInterval(() => updater.check(), 6 * 3600_000);
+    }
+    setTimeout(() => firstRun().catch((err) => debugLog(`first run failed: ${err.message}`)), 2500);
+    setTimeout(() => readClaudeVersion().catch(() => {}), 5000);
+    setInterval(() => readClaudeVersion().catch(() => {}), 5 * 60_000);
+  }
   armSnooze(); // a snooze that survived a restart still has to end
   // the "finished today" number starts again at midnight even when nothing else happens
   let shownDay = celebrateLib.dayKey(new Date());
@@ -938,5 +1331,6 @@ app.on('second-instance', () => showPet(false, 30_000));
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => {
   openChat.stop();
+  if (claudeWatcherInstance) claudeWatcherInstance.stop();
   if (server) server.close();
 });

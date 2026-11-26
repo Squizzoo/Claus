@@ -39,10 +39,15 @@ function Get-OpenChat {
   if (-not (Test-ClaudeProcess $fgPid)) { return 'none' }
   try {
     $root = $AE::FromHandle($h)
-    $doc = $root.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $rootWebArea)
-    if (-not $doc) { return 'none' }
-    $url = $doc.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value
-    if ($url -match '/(local_[0-9a-fA-F-]{8,64})(?:[/?#]|$)') { return "chat=$($Matches[1])" }
+    # Claude Desktop shows two web documents: its own shell page (file:///...index.html) and the chat view inside it
+    # (https://claude.ai/.../local_<id>). The first one never carries the id, so look at all of them.
+    $docs = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $rootWebArea)
+    foreach ($doc in $docs) {
+      try {
+        $url = $doc.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value
+        if ($url -match '/(local_[0-9a-fA-F-]{8,64})(?:[/?#]|$)') { return "chat=$($Matches[1])" }
+      } catch { }
+    }
   } catch { }
   return 'none'
 }
