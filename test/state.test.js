@@ -117,6 +117,45 @@ test('a chat waiting on you too long makes the pet angry, once', () => {
   assert.equal(st.snapshot().overdue, false);
 });
 
+test('a chat that keeps waiting chimes again every interval, with its own state', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now, impatientMs: 0 });
+  st.applyHook(hook('PermissionRequest', { tool_name: 'Bash' }));
+  st.takeAlerts();
+  const MIN = 60_000;
+  c.advance(4 * MIN);
+  assert.equal(st.tickReminders(5 * MIN), false);
+  c.advance(MIN);
+  assert.equal(st.tickReminders(5 * MIN), true);
+  assert.deepEqual(st.takeAlerts(), [{ id: SID, state: 'approval', reminder: true }]);
+  c.advance(4 * MIN);
+  assert.equal(st.tickReminders(5 * MIN), false); // counts from the last reminder
+  c.advance(MIN);
+  assert.equal(st.tickReminders(5 * MIN), true);
+  st.takeAlerts();
+  st.applyHook(hook('PostToolUse', { tool_name: 'Bash' })); // you answered
+  c.advance(10 * MIN);
+  assert.equal(st.tickReminders(5 * MIN), false);
+});
+
+test('reminders skip muted chats, finished chats and an interval of 0', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('PreToolUse', { tool_name: 'AskUserQuestion' }));
+  st.takeAlerts();
+  c.advance(60 * 60_000);
+  assert.equal(st.tickReminders(0), false);
+  st.setMuted({ ids: [SID] });
+  assert.equal(st.tickReminders(60_000), false);
+  st.setMuted({});
+  assert.equal(st.tickReminders(60_000), true);
+  st.takeAlerts();
+  st.applyHook(hook('Stop'));
+  st.takeAlerts();
+  c.advance(60 * 60_000);
+  assert.equal(st.tickReminders(60_000), false); // finished chats are not repeated
+});
+
 test('only questions and approvals can go overdue; 0 means never', () => {
   const c = clock();
   const st = new SessionStore({ now: c.now, impatientMs: 1000 });
