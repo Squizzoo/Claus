@@ -18,6 +18,8 @@ const celebrateLib = require('./celebrate');
 const dailyLib = require('./daily');
 const notifyLib = require('./notify');
 const placeLib = require('./placement');
+const jumpHealthLib = require('./jump-health');
+const { createClaudeWatcher } = require('./claude-running');
 const { showToast } = require('./toast');
 const { createTranscriptReader } = require('./transcript');
 const { rowMenuTemplate, vscodeUrl, terminalCommand } = require('./row-menu');
@@ -40,7 +42,7 @@ let settingsWin = null; // the settings window (a normal window, opened by doubl
 let rebuildTray = () => {}; // set by buildTray; called when a setting changes elsewhere so the tray checkmarks stay right
 let tray = null;
 let server = null;
-let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, notify: notifyLib.DEFAULTS, place: placeLib.DEFAULTS, streak: celebrateLib.EMPTY, daily: dailyLib.EMPTY }; // impatientMin 0 = never angry
+let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, notify: notifyLib.DEFAULTS, place: placeLib.DEFAULTS, jumpHealth: jumpHealthLib.EMPTY, streak: celebrateLib.EMPTY, daily: dailyLib.EMPTY }; // impatientMin 0 = never angry
 let petPos = { x: 0, y: 0 }; // top-left of the pet, the source of truth for position
 let panelH = 0; // extra height wanted by the list (0 = collapsed)
 let layout = { side: 'right', vertical: 'up' };
@@ -60,6 +62,8 @@ function loadSettings() {
   settings.notify = notifyLib.sanitize(settings.notify);
   settings.place = placeLib.sanitize(settings.place);
   PET = lookLib.sizePx(settings.look.size);
+  settings.jumpHealth = jumpHealthLib.sanitize(settings.jumpHealth);
+  jumpHealth = settings.jumpHealth;
   settings.streak = celebrateLib.sanitizeStreak(settings.streak);
   settings.daily = dailyLib.sanitize(settings.daily);
   Object.assign(settings, lookLib.sanitizeBehaviour(settings, lookLib.BEHAVIOUR_DEFAULTS));
@@ -487,6 +491,46 @@ function updateAutoHide(snap) {
   }
 }
 
+// ---------- follow the active monitor ----------
+// "Active" is the monitor of the window the user works in (the foreground window, asked from the PowerShell helper), not the one the mouse is on.
+// The pet keeps its relative place (bottom right stays bottom right) and only moves once the new monitor has been the active one for a few seconds.
+let following = false;
+async function followActiveMonitor() {
+  if (following || SHOT_RUN || settings.place.monitor !== 'follow' || !win || win.isDestroyed() || !petShown) return;
+  following = true;
+  try {
+    const rect = await claudeWatcher().foreground();
+    if (!rect || settings.place.monitor !== 'follow') return;
+    const dip = screen.screenToDipRect(null, rect);
+    const display = screen.getDisplayNearestPoint({ x: Math.round(dip.x + dip.width / 2), y: Math.round(dip.y + dip.height / 2) });
+    const now = Date.now();
+    if (display.id !== followState.displayId) followState = { displayId: display.id, since: now };
+    const here = displayFor(petPos.x, petPos.y, PET, PET);
+    if (!placeLib.shouldFollow({
+      monitor: settings.place.monitor,
+      activeDisplayId: followState.displayId,
+      currentDisplayId: here.id,
+      candidateSince: followState.since,
+      now,
+      dragging: Boolean(drag),
+      panelOpen: panelH > 0,
+      settingsOpen: Boolean(settingsWin && !settingsWin.isDestroyed()),
+    })) return;
+    const from = { x: petPos.x, y: petPos.y };
+    const to = placeLib.followTarget(placeLib.relativeOf(from, here.workArea, PET), display.workArea, PET);
+    debugLog(`follow: moving to display ${display.id}`);
+    petPos = to;
+    settings.x = to.x;
+    settings.y = to.y;
+    saveSettings();
+    slide(from, to, () => applyBounds());
+  } catch (err) {
+    debugLog(`follow failed: ${err.message}`);
+  } finally {
+    following = false;
+  }
+}
+
 // ---------- snooze ----------
 let snoozeTimer = null;
 /** One timer for the end of the snooze, so the tray label, the list and the settings window do not go stale. */
@@ -537,6 +581,7 @@ function settingsSnapshot() {
     opacities: lookLib.OPACITIES,
     place: settings.place,
     placeChoices: { snap: placeLib.SNAP, monitor: placeLib.MONITOR },
+    jump: { status: jumpHealthLib.status(jumpHealth), version: jumpHealth.version, okVersion: jumpHealth.okVersion },
   };
 }
 let lastSettingsSent = '';
@@ -671,15 +716,75 @@ async function jumpTo(id) {
   push();
   // Raise first (it waits for a hidden/minimised window to appear), open the chat at the same time.
   const raised = focusClaude();
+  let opened = false;
   try {
     await shell.openExternal(url);
+    opened = true;
     debugLog(`jump ${id.slice(0, 8)} opened`);
   } catch (err) {
     debugLog(`jump ${id.slice(0, 8)} openExternal failed: ${err.message}`);
   }
-  debugLog(`jump ${id.slice(0, 8)} focus: ${await raised}`);
+  const focus = await raised;
+  debugLog(`jump ${id.slice(0, 8)} focus: ${focus}`);
+  if (opened) verifyJump(store.hostIdOf(id), focus === 'focused'); // not awaited: the self-check must never delay the jump
   return true;
 }
+
+// ---------- self-check of the jump route ----------
+// Claude Desktop can change its claude://code/continue route in an update. After a jump, look at which chat the foreground Claude
+// window shows: two misses in a row put a warning in the tray (jump-health.js decides, this only looks).
+let jumpHealth = jumpHealthLib.EMPTY;
+let canReadChat = false; // the helper has read a chat id from Claude at least once (see jumpHealthLib.outcome)
+const JUMP_CHECK_TRIES = 8;
+const JUMP_CHECK_GAP_MS = 500;
+async function verifyJump(wanted, focused) {
+  if (!wanted || SHOT_RUN) return;
+  const version = await readClaudeVersion();
+  let answer;
+  const seen = [];
+  for (let i = 0; i < JUMP_CHECK_TRIES; i++) {
+    await new Promise((r) => setTimeout(r, JUMP_CHECK_GAP_MS));
+    const got = await openChat.query();
+    seen.push(got === undefined ? 'busy' : got ? got.slice(0, 14) : 'none');
+    if (got === undefined) continue; // the helper was busy with the one-second loop: ask again
+    answer = got;
+    if (got) canReadChat = true;
+    if (got === wanted) break;
+  }
+  const verdict = jumpHealthLib.outcome({ focused, openHostId: answer, wanted, canRead: canReadChat });
+  debugLog(`jump check: ${verdict ? (verdict.ok ? 'ok' : 'miss') : 'no verdict'} (answers: ${seen.join(' ')})`);
+  if (!verdict) return;
+  const before = jumpHealthLib.status(jumpHealth);
+  jumpHealth = jumpHealthLib.record(jumpHealthLib.seenVersion(jumpHealth, version), { ok: verdict.ok });
+  settings.jumpHealth = jumpHealth;
+  saveSettings();
+  if (jumpHealthLib.status(jumpHealth) !== before) {
+    debugLog(`jump route is now ${jumpHealthLib.status(jumpHealth)}`);
+    rebuildTray();
+    sendSettings();
+  }
+}
+/** The running Claude Desktop version, '' when unknown. A change flips the self-check to "unverified" until a jump works again. */
+async function readClaudeVersion() {
+  const claude = await claudeWatcher().state();
+  const version = claude ? claude.version : '';
+  if (version) {
+    const before = jumpHealthLib.status(jumpHealth);
+    jumpHealth = jumpHealthLib.seenVersion(jumpHealth, version);
+    if (jumpHealth !== settings.jumpHealth) {
+      settings.jumpHealth = jumpHealth;
+      saveSettings();
+      if (jumpHealthLib.status(jumpHealth) !== before) {
+        rebuildTray();
+        sendSettings();
+      }
+    }
+  }
+  return version;
+}
+let claudeWatcherInstance = null;
+/** The PowerShell helper for "is Claude running, which version, which window is in front"; only started when first asked. */
+const claudeWatcher = () => claudeWatcherInstance || (claudeWatcherInstance = createClaudeWatcher());
 /**
  * A chat that does not run in Claude Desktop (a terminal, VS Code): raise the window its process lives in.
  * A terminal with tabs comes forward as a whole window; the pet cannot pick the tab.
@@ -872,14 +977,21 @@ ipcMain.on('snooze', (_e, minutes) => setSnooze(minutes));
 ipcMain.on('preview-sound', (_e, req) => previewSound(req));
 
 // ---------- tray ----------
+const JUMP_WARNINGS = {
+  broken: 'Opening a chat from the list no longer seems to work (Claude Desktop may have changed)',
+  unverified: 'Claude Desktop was updated: opening chats has not been checked yet',
+};
 function buildTray() {
   const img = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'tray.png'));
   tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img);
   tray.setToolTip('Claus');
   rebuildTray = () => {
-    tray.setToolTip(snoozed() ? `Claus (snoozed until ${notifyLib.clock(settings.notify.snoozeUntil)})` : 'Claus');
+    const jumpStatus = jumpHealthLib.status(jumpHealth);
+    const warning = JUMP_WARNINGS[jumpStatus];
+    tray.setToolTip(`${snoozed() ? `Claus (snoozed until ${notifyLib.clock(settings.notify.snoozeUntil)})` : 'Claus'}${warning ? `\n${warning}` : ''}`);
     tray.setContextMenu(
       Menu.buildFromTemplate([
+        ...(warning ? [{ label: `⚠ ${warning}`, click: () => openSettings() }, { type: 'separator' }] : []),
         { label: 'Settings...', click: () => openSettings() },
         { label: 'Show pet', click: () => showPet(false, 30_000) },
         { label: 'Reset position', click: () => { petPos = defaultPos(); settings.x = petPos.x; settings.y = petPos.y; saveSettings(); applyBounds(); push(); } },
@@ -958,6 +1070,12 @@ app.whenReady().then(async () => {
     setInterval(() => refreshTokens(), 10_000); // chats that are still running move their total between hooks
   }
   setInterval(() => updateAutoHide(store.snapshot()), 1000); // the grace before the pet hides runs on time, not on events
+  if (!SHOT_RUN) {
+    // which monitor the window the user works in is on (only asked while "follow" is on), and which Claude version runs (every few minutes)
+    setInterval(followActiveMonitor, 1000);
+    setTimeout(() => readClaudeVersion().catch(() => {}), 5000);
+    setInterval(() => readClaudeVersion().catch(() => {}), 5 * 60_000);
+  }
   armSnooze(); // a snooze that survived a restart still has to end
   // the "finished today" number starts again at midnight even when nothing else happens
   let shownDay = celebrateLib.dayKey(new Date());
@@ -985,6 +1103,7 @@ app.whenReady().then(async () => {
       try {
         const hostId = await openChat.query();
         if (hostId === undefined) return; // the helper was busy with another question: no answer, not "no chat open"
+        if (hostId) canReadChat = true;
         if (hostId !== lastSeen) {
           lastSeen = hostId;
           debugLog(`open chat in Claude: ${hostId ? hostId.slice(0, 14) : 'none'}`);
@@ -1021,5 +1140,6 @@ app.on('second-instance', () => showPet(false, 30_000));
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => {
   openChat.stop();
+  if (claudeWatcherInstance) claudeWatcherInstance.stop();
   if (server) server.close();
 });

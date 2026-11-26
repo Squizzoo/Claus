@@ -52,3 +52,9 @@ test('outcome: only a real, non-matching answer after a successful raise is a mi
   assert.deepEqual(J.outcome({ focused: true, openHostId: null, wanted: 'local_a' }), { ok: false }); // Claude is up but shows no chat
   assert.equal(J.outcome({ focused: false, openHostId: 'local_b', wanted: 'local_a' }), null); // focus was refused: not a route problem
 });
+
+test('outcome: "none" before the helper has ever read a chat is no verdict', () => {
+  assert.equal(J.outcome({ focused: true, openHostId: null, wanted: 'local_a', canRead: false }), null);
+  assert.deepEqual(J.outcome({ focused: true, openHostId: null, wanted: 'local_a', canRead: true }), { ok: false });
+  assert.deepEqual(J.outcome({ focused: true, openHostId: 'local_b', wanted: 'local_a', canRead: false }), { ok: false }); // a different chat is a real answer
+});

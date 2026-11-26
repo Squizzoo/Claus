@@ -14,6 +14,7 @@ const PRIORITY = { idle: 0, working: 1, done: 2, question: 3, approval: 4 };
 const ATTENTION = new Set(['done', 'question', 'approval']);
 const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const STALE_WORKING_MS = 30_000;
+const INTERRUPT_GRACE_MS = 4_000; // how long the registry must show "idle" before a working chat counts as interrupted
 const REGISTRY_GRACE_MS = 60_000;
 const VIEW_REPORTS = 2; // consecutive "this chat is open" reports before a finished chat counts as seen
 
@@ -281,7 +282,12 @@ class SessionStore {
           changed = this._set(s, 'working') || changed;
         }
       } else if (e.status === 'idle') {
-        if (s.state === 'working' && now - s.since > STALE_WORKING_MS) {
+        // A turn that ends normally fires `Stop` (-> done). One that is interrupted (Esc) fires nothing, but the registry shows the chat idle again.
+        // So a working chat whose registry went idle *after* it started working, and has stayed idle for a few seconds (the grace lets a normal
+        // `Stop` win), was interrupted. Without a usable timestamp it still falls back to the old slow rule.
+        const idleSince = e.statusUpdatedAt || 0;
+        const interrupted = idleSince > s.since && now - idleSince >= INTERRUPT_GRACE_MS;
+        if (s.state === 'working' && (interrupted || now - s.since > STALE_WORKING_MS)) {
           changed = this._set(s, 'idle') || changed;
         }
       }

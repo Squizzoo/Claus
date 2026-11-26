@@ -51,11 +51,17 @@ function status(state) {
   return 'ok';
 }
 
-/** Should this outcome of a jump count at all? Only a real answer that does not match counts as a miss. */
-function outcome({ focused, openHostId, wanted }) {
+/**
+ * Should this outcome of a jump count at all? Only a real answer that does not match counts as a miss.
+ * `canRead` says the helper has already read a chat id from Claude at least once: right after Claude starts, its accessibility tree
+ * is still being built and "none" is a normal answer, so a "none" before that proves nothing.
+ */
+function outcome({ focused, openHostId, wanted, canRead = true }) {
   if (openHostId === undefined) return null; // the helper was busy: no answer, no verdict
   if (openHostId === wanted) return { ok: true };
-  return focused ? { ok: false } : null; // Windows may simply have refused to raise the window
+  if (!focused) return null; // Windows may simply have refused to raise the window
+  if (openHostId === null && !canRead) return null; // cannot see inside Claude yet
+  return { ok: false };
 }
 
 module.exports = { EMPTY, BROKEN_AFTER, parseVersion, sanitize, seenVersion, record, status, outcome };
