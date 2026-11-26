@@ -9,6 +9,10 @@ const { jumpUrl } = require('./jump');
 const { focusClaude } = require('./focus');
 const { createOpenChatWatcher } = require('./open-chat');
 const prefsLib = require('./prefs');
+const lookLib = require('./look');
+const PetArt = require('./renderer/pets');
+const PetSounds = require('./renderer/sounds');
+const celebrateLib = require('./celebrate');
 
 const PORT = Number(process.env.CLAUDE_PET_PORT) || DEFAULT_PORT;
 const PET = 150; // collapsed window: the pet only
@@ -24,7 +28,7 @@ let win = null; // the pet: always PET x PET, never resized (resizing a transpar
 let panelWin = null; // the chat list: its own window next to the pet, shown and hidden
 let tray = null;
 let server = null;
-let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS }; // impatientMin 0 = never angry
+let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, streak: celebrateLib.EMPTY }; // impatientMin 0 = never angry
 let petPos = { x: 0, y: 0 }; // top-left of the pet, the source of truth for position
 let panelH = 0; // extra height wanted by the list (0 = collapsed)
 let layout = { side: 'right', vertical: 'up' };
@@ -39,6 +43,8 @@ function loadSettings() {
     /* first run */
   }
   settings.prefs = prefsLib.sanitize(settings.prefs);
+  settings.look = lookLib.sanitize(settings.look);
+  settings.streak = celebrateLib.sanitizeStreak(settings.streak);
   applyPrefs();
 }
 /** Muted chats and projects live in the list preferences; the store needs them to stay quiet. */
@@ -157,6 +163,8 @@ function createWindow() {
   petPos = settings.x == null ? defaultPos() : clampToDisplays(settings.x, settings.y);
   win = makeWindow('pet', petBounds());
   win.once('ready-to-show', () => win.showInactive());
+  // The renderer starts with the default cat; send the saved look as soon as the page is there.
+  win.webContents.once('did-finish-load', () => push());
   panelWin = makeWindow('panel', { x: petPos.x, y: petPos.y, width: PANEL_W, height: 100 });
   // The list closes when focus goes somewhere else. Clicking the pet moves focus between our own
   // two windows, so wait a moment and look: the pet's own click (toggle-panel) decides in that case.
@@ -172,13 +180,48 @@ function createWindow() {
 
 // The pet window always gets expanded:false (it never shows the list); the list window gets the
 // real flag. opts.paintId asks the list window to answer ('painted') once the state is on screen.
+// The sound to play now ({pack, volume}), or null while sounds are muted or it is quiet hours.
+function currentSound() {
+  if (settings.muted || lookLib.isQuiet(new Date(), settings.look.quiet)) return null;
+  return { pack: settings.look.pack, volume: settings.look.volume };
+}
+
+const celebrator = celebrateLib.createCelebrator();
+/** Counts the chats that just finished (the day counter) and says how many finished together, if that is a celebration. */
+function collectFinished() {
+  let together = 0;
+  const finished = store.takeFinished();
+  for (const e of finished) {
+    settings.streak = celebrateLib.bumpStreak(settings.streak, new Date(e.at));
+    if (!e.muted) together = Math.max(together, celebrator.record(e.at));
+  }
+  if (finished.length) saveSettings();
+  return together;
+}
+function celebrate(count) {
+  if (win && !win.isDestroyed()) win.webContents.send('celebrate', { count, sound: currentSound() });
+}
+
 function push(opts = {}) {
   if (!win || win.isDestroyed()) return;
-  const snap = { ...store.snapshot(), muted: settings.muted, prefs: settings.prefs, layout };
+  const together = collectFinished();
+  const snap = {
+    ...store.snapshot(),
+    muted: settings.muted,
+    prefs: settings.prefs,
+    look: settings.look,
+    finishedToday: celebrateLib.finishedToday(settings.streak, new Date()),
+    idleActions: !SHOT_RUN, // screenshots must not catch the pet half-way through a random yawn
+    layout,
+  };
   win.webContents.send('state', { ...snap, expanded: false });
   if (panelWin && !panelWin.isDestroyed()) panelWin.webContents.send('state', { ...snap, expanded: panelH > 0, paintId: opts.paintId });
   const alerts = store.takeAlerts();
-  if (alerts.length && !settings.muted) win.webContents.send('alert', alerts.map((a) => a.state));
+  const sound = currentSound();
+  // the celebration brings its own fanfare, so the plain finished-chime is skipped when only finishes caused it
+  const states = alerts.map((a) => a.state);
+  if (alerts.length && sound && !(together && states.every((s) => s === 'done'))) win.webContents.send('alert', { states, sound });
+  if (together && !SHOT_RUN) celebrate(together); // shot runs trigger it themselves, so it does not land in other pictures
 }
 
 // A window that is shown for the first time (or again) can flash its previous content for a frame.
@@ -306,6 +349,17 @@ function updatePrefs(patch) {
   push();
 }
 ipcMain.on('set-prefs', (_e, patch) => updatePrefs(patch));
+// The pet's look (pet, colour, accessory, sound): chosen from the tray.
+function updateLook(patch) {
+  settings.look = lookLib.merge(settings.look, patch);
+  saveSettings();
+  push();
+}
+/** A short sample after choosing a sound pack or volume (nothing while muted or in quiet hours). */
+function previewSound() {
+  const sound = currentSound();
+  if (sound && win && !win.isDestroyed()) win.webContents.send('alert', { states: ['done'], sound });
+}
 
 // ---------- tray ----------
 function buildTray() {
@@ -317,6 +371,12 @@ function buildTray() {
       Menu.buildFromTemplate([
         { label: 'Show pet', click: () => win && (win.showInactive(), win.setAlwaysOnTop(true, 'floating')) },
         { label: 'Reset position', click: () => { petPos = defaultPos(); settings.x = petPos.x; settings.y = petPos.y; saveSettings(); applyBounds(); push(); } },
+        { label: 'Pet', submenu: PetArt.ORDER.map((id) => ({ label: PetArt.PETS[id].label, type: 'radio', checked: settings.look.pet === id, click: () => updateLook({ pet: id }) })) },
+        { label: 'Colour', submenu: PetArt.SKIN_ORDER.map((id) => ({ label: PetArt.SKINS[id].label, type: 'radio', checked: settings.look.skin === id, click: () => updateLook({ skin: id }) })) },
+        { label: 'Accessory', submenu: PetArt.ACCESSORY_ORDER.map((id) => ({ label: PetArt.ACCESSORIES[id].label, type: 'radio', checked: settings.look.accessory === id, click: () => updateLook({ accessory: id }) })) },
+        { label: 'Sound pack', submenu: PetSounds.PACK_ORDER.map((id) => ({ label: PetSounds.PACKS[id].label, type: 'radio', checked: settings.look.pack === id, click: () => { updateLook({ pack: id }); previewSound(); } })) },
+        { label: 'Volume', submenu: PetSounds.VOLUMES.map((v) => ({ label: `${v}%`, type: 'radio', checked: settings.look.volume === v, click: () => { updateLook({ volume: v }); previewSound(); } })) },
+        { label: 'Quiet hours (no sound)', submenu: lookLib.QUIET_ORDER.map((id) => ({ label: lookLib.QUIET[id].label, type: 'radio', checked: settings.look.quiet === id, click: () => updateLook({ quiet: id }) })) },
         { label: 'Mute sounds', type: 'checkbox', checked: settings.muted, click: (i) => { settings.muted = i.checked; saveSettings(); push(); } },
         {
           label: 'Gets angry after waiting',
@@ -333,6 +393,7 @@ function buildTray() {
             },
           })),
         },
+        { label: 'Show chats finished today', type: 'checkbox', checked: settings.look.streak, click: (i) => updateLook({ streak: i.checked }) },
         { label: 'Clear finished', click: () => { store.dismissAllDone(); push(); } },
         { type: 'separator' },
         { label: 'Quit', click: () => app.quit() },
@@ -368,6 +429,15 @@ app.whenReady().then(async () => {
   poll();
   setInterval(poll, 2000);
   setInterval(() => store.tickOverdue() && push(), 5000); // the pet turns angry when you keep it waiting
+  // the "finished today" number starts again at midnight even when nothing else happens
+  let shownDay = celebrateLib.dayKey(new Date());
+  setInterval(() => {
+    const day = celebrateLib.dayKey(new Date());
+    if (day !== shownDay) {
+      shownDay = day;
+      push();
+    }
+  }, 30_000);
 
   // Opening a finished chat in Claude Desktop (not through the pet) counts as seeing it. Only asked
   // while a finished chat is waiting, so the helper is idle the rest of the time.
@@ -412,7 +482,7 @@ app.whenReady().then(async () => {
   screen.on('display-metrics-changed', () => { petPos = clampToDisplays(petPos.x, petPos.y); applyBounds(); push(); });
   // Dev aid: `electron . --shot=out.png` renders the current state to a PNG, then quits.
   const shot = process.argv.find((a) => a.startsWith('--shot='));
-  if (shot) require('./shot').run(win, shot.slice(7), { store, setPanel, push, setPrefs: updatePrefs, panelWin: () => panelWin });
+  if (shot) require('./shot').run(win, shot.slice(7), { store, setPanel, push, setPrefs: updatePrefs, setLook: updateLook, celebrate, panelWin: () => panelWin });
 });
 
 app.on('second-instance', () => win && win.showInactive());

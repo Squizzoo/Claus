@@ -35,7 +35,11 @@
     sessions: [], mood: 'idle', attention: 0, overdue: false, types: { approval: 0, question: 0, done: 0 },
     counts: { done: 0, idle: 0 }, hiddenCount: 0, undoable: false, undoUntil: 0, undoCount: 0, prefs: DEFAULT_PREFS, expanded: false,
   };
+  const tilt = document.getElementById('tilt');
+  const veinPos = document.getElementById('vein-pos');
   let audio = null;
+  let petId = null; // the pet currently drawn
+  let lookKey = ''; // pet, colour and accessory currently drawn
   let listSig = '';
   let sentHeight = -1;
   let query = '';
@@ -227,10 +231,56 @@
     }
   }
 
+  /** Draws the chosen pet into #tilt (only when it changed) and applies its colours. */
+  function applyLook(look) {
+    const pet = PetArt.buildPet(look && look.pet, look && look.skin, look && look.accessory);
+    petId = pet.id;
+    const key = `${pet.id}/${look && look.skin}/${look && look.accessory}`;
+    if (key !== lookKey) {
+      lookKey = key;
+      tilt.innerHTML = pet.markup;
+      const [dx, dy] = pet.anchors.vein;
+      if (dx || dy) veinPos.setAttribute('transform', `translate(${dx} ${dy})`);
+      else veinPos.removeAttribute('transform');
+    }
+    for (const [k, v] of Object.entries(pet.vars)) root.style.setProperty(k, v);
+  }
+
+  // ---------- idle animations ----------
+  // Only the pet window, only while the pet is calm: every so often it stretches, yawns, looks around or wags.
+  let idleAct = ''; // class of the action in progress ('' = none)
+  let idleTimer = null;
+  let idleWanted = false;
+  const stopIdle = () => {
+    window.clearTimeout(idleTimer);
+    idleAct = '';
+  };
+  function scheduleIdle() {
+    window.clearTimeout(idleTimer);
+    idleTimer = window.setTimeout(() => {
+      const name = PetArt.pickIdleAction(PetArt.buildPet(last.look && last.look.pet).hasTail);
+      idleAct = `act-${name}`;
+      root.classList.add(idleAct);
+      idleTimer = window.setTimeout(() => {
+        root.classList.remove(idleAct);
+        idleAct = '';
+        scheduleIdle();
+      }, PetArt.IDLE_ACTIONS[name].ms);
+    }, PetArt.nextIdleDelay());
+  }
+  function syncIdle(calm) {
+    if (ROLE !== 'pet' || calm === idleWanted) return;
+    idleWanted = calm;
+    if (calm) scheduleIdle();
+    else stopIdle();
+  }
+
   function render(state) {
     last = state;
+    applyLook(state.look);
     const mood = state.sessions.length === 0 ? 'sleep' : state.mood;
-    root.className = `role-${ROLE} side-${state.layout.side} ${state.layout.vertical} mood-${mood}${state.overdue ? ' angry' : ''}`;
+    syncIdle(mood === 'idle' && !state.overdue && state.idleActions !== false);
+    root.className = `role-${ROLE} pet-${petId} side-${state.layout.side} ${state.layout.vertical} mood-${mood}${state.overdue ? ' angry' : ''}${idleAct ? ' ' + idleAct : ''}${root.classList.contains('celebrating') ? ' celebrating' : ''}`;
     const multi = renderChips(state);
     const text = state.overdue && !multi ? (mood === 'question' ? '?!' : '!!') : BUBBLE[mood] ?? '';
     bubbleText.textContent = text;
@@ -248,8 +298,10 @@
     }
 
     const view = PetView.buildView(state.sessions, state.prefs, query);
-    const waiting = `${state.attention} waiting · ${state.sessions.length} open`;
-    count.textContent = !state.sessions.length ? '' : query.trim() ? `${view.shown} of ${state.sessions.length} shown` : waiting;
+    const today = state.look && state.look.streak && state.finishedToday > 0 ? `✓ ${state.finishedToday} today` : '';
+    const waiting = `${state.attention} waiting · ${state.sessions.length} open${today ? ' · ' + today : ''}`;
+    count.textContent = !state.sessions.length ? today : query.trim() ? `${view.shown} of ${state.sessions.length} shown` : waiting;
+    count.title = today ? `${state.finishedToday} chats finished today` : '';
     renderBars(state, view);
     empty.hidden = view.shown > 0;
     list.hidden = view.shown === 0;
@@ -393,25 +445,56 @@
   });
 
   // ---------- sound ----------
-  function chime(states) {
+  // The tunes live in sounds.js; main.js sends {pack, volume} along, or nothing at all while muted or in quiet hours.
+  function playSound(kind, cfg) {
     try {
       audio = audio || new AudioContext();
-      const top = states.includes('overdue') ? 'overdue' : states.includes('approval') ? 'approval' : states.includes('question') ? 'question' : 'done';
-      const notes = { done: [660, 880], question: [587, 740, 880], approval: [880, 698, 880], overdue: [523, 440, 523, 440] }[top];
-      notes.forEach((f, i) => {
+      const t0 = audio.currentTime;
+      for (const n of PetSounds.plan(cfg && cfg.pack, kind, cfg && cfg.volume)) {
         const o = audio.createOscillator();
         const g = audio.createGain();
-        const t = audio.currentTime + i * 0.13;
-        o.type = top === 'overdue' ? 'triangle' : 'sine';
-        o.frequency.value = f;
+        const t = t0 + n.start;
+        o.type = n.wave;
+        o.frequency.value = n.freq;
         g.gain.setValueAtTime(0.0001, t);
-        g.gain.exponentialRampToValueAtTime(0.12, t + 0.02);
-        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.28);
+        g.gain.exponentialRampToValueAtTime(n.gain, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + n.len);
         o.connect(g).connect(audio.destination);
         o.start(t);
-        o.stop(t + 0.3);
-      });
+        o.stop(t + n.len + 0.02);
+      }
     } catch { /* no audio device */ }
+  }
+
+  // ---------- celebration ----------
+  // Several chats finished together: confetti and sparkles over the pet (inside its fixed window) and a higher hop.
+  const confetti = document.getElementById('confetti');
+  const COLORS = ['#e8574b', '#3b7dd8', '#3fa66a', '#f5a623', '#b08cf0', '#ff7ab6', '#ffd23f'];
+  let partyTimer = null;
+  function celebrate(count) {
+    if (ROLE !== 'pet') return;
+    const n = Math.min(40, 14 + count * 4);
+    for (let i = 0; i < n; i++) {
+      const el = document.createElement('i');
+      const spark = i % 4 === 0;
+      el.className = spark ? 'piece spark' : 'piece';
+      if (spark) el.textContent = '✦';
+      const side = Math.random() * 2 - 1;
+      el.style.setProperty('--c', COLORS[i % COLORS.length]);
+      el.style.setProperty('--x', `${Math.round(side * 70)}px`);
+      el.style.setProperty('--yp', `${-Math.round(30 + Math.random() * 40)}px`);
+      el.style.setProperty('--y', `${Math.round(30 + Math.random() * 40)}px`);
+      el.style.setProperty('--r', `${Math.round((Math.random() * 2 - 1) * 540)}deg`);
+      el.style.setProperty('--d', `${Math.round(Math.random() * 250)}ms`);
+      el.style.setProperty('--t', `${1500 + Math.round(Math.random() * 700)}ms`);
+      confetti.append(el);
+    }
+    root.classList.add('celebrating');
+    window.clearTimeout(partyTimer);
+    partyTimer = window.setTimeout(() => {
+      confetti.textContent = '';
+      root.classList.remove('celebrating');
+    }, 2700);
   }
 
   // ---------- drag vs click on the pet ----------
@@ -443,7 +526,11 @@
   });
 
   window.pet.onState(render);
-  window.pet.onAlert(chime);
+  window.pet.onAlert((a) => playSound(PetSounds.topKind(a.states), a.sound));
+  window.pet.onCelebrate((c) => {
+    celebrate(c.count);
+    if (c.sound) playSound('celebrate', c.sound);
+  });
   setInterval(() => last.expanded && render(last), 30_000); // refresh "x min ago"
   render({ ...last, layout: { side: 'right', vertical: 'up' } });
 })();
