@@ -152,19 +152,19 @@ async function settingsShots(prefix, { openSettings, setLook, store, push }) {
 // The pet at every size, calm and with chips (badge and chips scale with the art), and with the list open: `npx electron . --shot=out/size --sizes`.
 async function sizeSheets(win, prefix, { store, setPanel, push, setLook, panelWin }) {
   const hook = (id, name, event, extra = {}) => {
-    store.applyHook({ session_id: id, cwd: `C:\\xampp\\htdocs\\${name}`, hook_event_name: event, ...extra });
+    store.applyHook({ session_id: id, cwd: `C:\\dev\\${name}`, hook_event_name: event, ...extra });
     store.sessions.get(id).name = name;
   };
   for (const size of ['s', 'm', 'l', 'xl']) {
     setLook({ size });
     store.sessions.clear();
-    hook('a', 'bonnebella.nl', 'Stop');
+    hook('a', 'webshop', 'Stop');
     await wait(500);
     push();
     await wait(450);
     fs.writeFileSync(`${prefix}-${size}-done.png`, (await win.webContents.capturePage()).toPNG());
-    hook('b', 'delijstenfabriek.nl', 'PreToolUse', { tool_name: 'AskUserQuestion' });
-    hook('c', 'printuploader.com', 'PermissionRequest', { tool_name: 'Bash' });
+    hook('b', 'docs-site', 'PreToolUse', { tool_name: 'AskUserQuestion' });
+    hook('c', 'image-api', 'PermissionRequest', { tool_name: 'Bash' });
     push();
     await wait(450);
     fs.writeFileSync(`${prefix}-${size}-chips.png`, (await win.webContents.capturePage()).toPNG());
@@ -207,7 +207,7 @@ async function run(win, prefix, { store, setPanel, push, setPrefs, setLook, cele
   }
 
   const hook = (id, name, event, extra = {}) => {
-    store.applyHook({ session_id: id, cwd: `C:\\xampp\\htdocs\\${name}`, hook_event_name: event, ...extra });
+    store.applyHook({ session_id: id, cwd: `C:\\dev\\${name}`, hook_event_name: event, ...extra });
     store.sessions.get(id).name = name;
   };
   const snap = async (name) => {
@@ -221,37 +221,37 @@ async function run(win, prefix, { store, setPanel, push, setPrefs, setLook, cele
   };
 
   await snap('1-sleep');
-  hook('s-idle', 'printuploader.com', 'SessionStart');
+  hook('s-idle', 'image-api', 'SessionStart');
   await snap('2-idle');
-  hook('s-idle', 'printuploader.com', 'UserPromptSubmit');
+  hook('s-idle', 'image-api', 'UserPromptSubmit');
   await snap('3-working');
-  hook('s-idle', 'printuploader.com', 'Stop');
+  hook('s-idle', 'image-api', 'Stop');
   await snap('4-done');
-  hook('s-q', 'delijstenfabriek.nl', 'PreToolUse', { tool_name: 'AskUserQuestion' });
+  hook('s-q', 'docs-site', 'PreToolUse', { tool_name: 'AskUserQuestion' });
   await snap('5-question');
-  hook('s-a', 'bonnebella.nl', 'PermissionRequest', { tool_name: 'Bash' });
+  hook('s-a', 'webshop', 'PermissionRequest', { tool_name: 'Bash' });
   await snap('6-approval');
-  hook('s-w', 'fundamental.ittica.nl', 'UserPromptSubmit');
+  hook('s-w', 'infra', 'UserPromptSubmit');
   setPanel(260);
   await snap('7-panel');
   setPanel(0);
 
   // angry: one chat has waited far longer than the patience
   store.sessions.clear();
-  hook('s-a', 'bonnebella.nl', 'PermissionRequest', { tool_name: 'Bash' });
+  hook('s-a', 'webshop', 'PermissionRequest', { tool_name: 'Bash' });
   store.sessions.get('s-a').since = Date.now() - 9 * 60_000;
   await snap('8-angry');
   store.sessions.clear();
-  hook('s-q', 'delijstenfabriek.nl', 'PreToolUse', { tool_name: 'AskUserQuestion' });
+  hook('s-q', 'docs-site', 'PreToolUse', { tool_name: 'AskUserQuestion' });
   store.sessions.get('s-q').since = Date.now() - 9 * 60_000;
   await snap('9-angry-question');
 
   // several kinds at once: one chip per kind
   store.sessions.clear();
-  hook('s-q', 'delijstenfabriek.nl', 'PreToolUse', { tool_name: 'AskUserQuestion' });
-  hook('s-d', 'printuploader.com', 'Stop');
+  hook('s-q', 'docs-site', 'PreToolUse', { tool_name: 'AskUserQuestion' });
+  hook('s-d', 'image-api', 'Stop');
   await snap('10-chips-2');
-  hook('s-a', 'bonnebella.nl', 'PermissionRequest', { tool_name: 'Bash' });
+  hook('s-a', 'webshop', 'PermissionRequest', { tool_name: 'Bash' });
   hook('s-d2', 'snijdersenvandijk.nl', 'Stop');
   await snap('11-chips-3');
   store.sessions.get('s-a').since = Date.now() - 9 * 60_000;
@@ -268,27 +268,27 @@ async function run(win, prefix, { store, setPanel, push, setPrefs, setLook, cele
     s.name = name;
     s.hostSessionId = `local_${id}`;
   };
-  chat('c1', 'bonnebella.nl', 'Fix checkout rounding', 'PermissionRequest', { tool_name: 'Bash' });
-  chat('c2', 'bonnebella.nl', 'Add invoice export', 'Stop');
-  chat('c3', 'bonnebella.nl', 'Review mollie webhook', 'SessionStart');
-  chat('c4', 'delijstenfabriek.nl', 'Which shipping options?', 'PreToolUse', { tool_name: 'AskUserQuestion' });
-  chat('c5', 'delijstenfabriek.nl', 'Translate the FAQ page', 'UserPromptSubmit');
-  chat('c6', 'printuploader.com', 'Upload progress bar', 'Stop');
-  chat('c7', 'printuploader.com', 'Resize images in the queue', 'SessionStart');
-  chat('c8', 'fundamental.ittica.nl', 'Cluster health check', 'UserPromptSubmit');
+  chat('c1', 'webshop', 'Fix checkout rounding', 'PermissionRequest', { tool_name: 'Bash' });
+  chat('c2', 'webshop', 'Add invoice export', 'Stop');
+  chat('c3', 'webshop', 'Review payment webhook', 'SessionStart');
+  chat('c4', 'docs-site', 'Which shipping options?', 'PreToolUse', { tool_name: 'AskUserQuestion' });
+  chat('c5', 'docs-site', 'Translate the FAQ page', 'UserPromptSubmit');
+  chat('c6', 'image-api', 'Upload progress bar', 'Stop');
+  chat('c7', 'image-api', 'Resize images in the queue', 'SessionStart');
+  chat('c8', 'infra', 'Cluster health check', 'UserPromptSubmit');
   for (const [id, mins] of [['c1', 6], ['c4', 3], ['c2', 12], ['c6', 1]]) store.sessions.get(id).since = Date.now() - mins * 60_000;
   const evalIn = (code) => panelWin().webContents.executeJavaScript(code); // the search box lives in the list window
   const typeQuery = (q) => evalIn(`(() => { const i = document.getElementById('search'); i.value = ${JSON.stringify(q)}; i.dispatchEvent(new Event('input')); })()`);
   setPanel(480);
   await snap('14-list-grouped');
-  await typeQuery('bonne');
+  await typeQuery('web');
   await snap('15-list-search');
   await typeQuery('');
-  setPrefs({ collapsed: ['c:/xampp/htdocs/bonnebella.nl'] });
+  setPrefs({ collapsed: ['c:/dev/webshop'] });
   await snap('16-list-collapsed');
   setPrefs({ collapsed: [], density: 'compact' });
   await snap('17-list-compact');
-  setPrefs({ density: 'comfortable', pinned: ['c8'], mutedChats: ['c2'], mutedProjects: ['c:/xampp/htdocs/printuploader.com'] });
+  setPrefs({ density: 'comfortable', pinned: ['c8'], mutedChats: ['c2'], mutedProjects: ['c:/dev/image-api'] });
   await snap('18-list-pinned-muted');
   setPrefs({ groupBy: 'none' });
   await snap('19-list-flat');
@@ -305,16 +305,16 @@ async function run(win, prefix, { store, setPanel, push, setPrefs, setLook, cele
   c5.lastHookAt = now - 8_000;
   store.setUsage('c5', { input: 6, output: 1500, cacheWrite: 41_000, cacheRead: 900_000 });
   store.setUsage('c1', { input: 12, output: 800, cacheWrite: 3_100, cacheRead: 120_000 });
-  chat('c9', 'printuploader.com', 'Run the tests in a terminal', 'UserPromptSubmit');
+  chat('c9', 'image-api', 'Run the tests in a terminal', 'UserPromptSubmit');
   Object.assign(store.sessions.get('c9'), { hostSessionId: null, pid: 4321, entrypoint: 'cli', turnStart: now - 75_000 });
   await snap('22-list-details');
 
   // ---- celebration: confetti and sparkles when several chats finish together ----
   setPanel(0);
   store.sessions.clear();
-  hook('p1', 'bonnebella.nl', 'Stop');
-  hook('p2', 'printuploader.com', 'Stop');
-  hook('p3', 'delijstenfabriek.nl', 'Stop');
+  hook('p1', 'webshop', 'Stop');
+  hook('p2', 'image-api', 'Stop');
+  hook('p3', 'docs-site', 'Stop');
   celebrate(3);
   await snap('21-celebrate');
 
