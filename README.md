@@ -62,7 +62,8 @@ remembered in `pet-settings.json`.
 **Double-click the pet** to open the settings window: a gallery of all 16 pets, a big live preview of the one you
 pick (with a mood switcher, so you can see it happy, worried or angry), and tiles for colour, accessory and mustache.
 Every click applies to the real pet straight away. The *Sound* tab has the sound packs (with buttons to hear each
-one), volume, quiet hours and mute; the *Behaviour* tab has how long the pet waits before it gets angry and the
+one), volume, quiet hours and mute; the *Notifications* tab has snooze, Windows toasts, the repeat reminder and
+auto-hide; the *Behaviour* tab has how long the pet waits before it gets angry and the
 finished-today counter. The tray menu (right-click the tray icon) still has every setting except the mustache, plus *Settings...*
 to open the window; both always show the same values. Everything is remembered.
 
@@ -95,7 +96,26 @@ node scripts/hooks.js install --apply    # writes the hooks (backup: settings.js
 Hooks are read by chats at start, so restart chats that were already open.
 Remove them any time with `node scripts/hooks.js uninstall --apply`.
 Tray icon: settings window, reset position, pet, colour, accessory, sound pack, volume, quiet hours, mute sounds,
-anger patience, finished-today counter, clear finished, quit.
+anger patience, finished-today counter, snooze, toasts, repeat reminder, auto-hide, clear finished, quit.
+
+## Smarter notifications
+
+All of this is in the settings window (*Notifications* tab) and the tray menu.
+
+- **Snooze** (15 minutes or 1 hour): no sound, no toast and no repeat reminder. The pet still shows its chips,
+  badge and anger, and the list header says "snoozed until 14:30". It survives a restart and ends by itself.
+- **Windows toasts:** a pop-up with the chat name and what happened (finished, asked a question, needs approval).
+  By default only when the pet is not visible (auto-hidden, or your mouse is on another screen than the pet);
+  *Always* and *Off* are the other choices. Click the toast to open the chat; a terminal chat, which cannot be
+  opened, brings up the pet and its list instead. Toasts are silent (the pet already chimes) and Windows keeps them in
+  its notification centre. They contain only the chat name, the kind of alert and the project folder.
+- **Focus awareness:** no sound or toast for a chat you are already looking at in Claude Desktop (the chip stays).
+  The first alert after starting the pet cannot know yet, because the window watcher only starts when it is first asked.
+- **Repeat reminder** (off, 2, 5, 10 or 15 minutes): a chat that keeps waiting on a question or approval plays its
+  sound again. Finished chats are not repeated. Snooze and muted chats silence it.
+- **Auto-hide:** *when nothing is open* hides the pet while there are no chats; *only when a chat needs me* shows it
+  (sliding in from the nearest screen edge) only while something waits. It stays while the list is open, while you
+  drag it or hover it, and for 30 seconds after you show it from the tray. Its position is never changed by this.
 
 ## Start and stop with Claude
 
@@ -185,7 +205,8 @@ shared generator draws the eyes and mouth for every mood. To add a pet, add one 
 `--pets` sheets; `test/pets.test.js` checks that it covers every mood. Sounds are data in `src/renderer/sounds.js`.
 The pet art is styled by `src/renderer/pet.css`, which only uses classes, so the pet window and the settings window
 (gallery cards and the live preview) share it; the settings window is `settings.html` / `settings.js` and draws pets
-with the same `PetArt.buildPet` as the real pet. A new setting goes into `src/look.js` (validation), the tray in
+with the same `PetArt.buildPet` as the real pet. Notification settings (toasts, reminder, auto-hide, snooze) and their decisions are pure and live in `src/notify.js`;
+`src/toast.js` is the thin Electron wrapper. A new setting goes into `src/look.js` (validation), the tray in
 `main.js` and a control in `settings.js`.
 
 The list logic (filter, group, sort, pins) lives in `src/renderer/view.js` and is unit tested;
@@ -217,3 +238,6 @@ POST to the hook receiver by hand disappear again after about a minute (they are
   after ~30 s via the registry. A question or approval you cancelled stays until
   the chat runs again or you click it.
 - Chats started outside Claude Desktop (a terminal) are listed but cannot be opened from the pet.
+- Toasts have no "Open chat" button (Electron only supports those on macOS): the whole toast is the button. A toast you
+  click in the notification centre after it timed out may do nothing, depending on Windows.
+- The pet has no taskbar button, so it cannot flash the taskbar; escalation is the repeat reminder.
