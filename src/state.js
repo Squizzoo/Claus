@@ -118,6 +118,26 @@ class SessionStore {
     return crossed;
   }
 
+  /**
+   * Escalation: a chat that keeps waiting on a question or approval chimes again every `remindMs` (0 = never).
+   * The reminder is an ordinary alert of the chat's own state, flagged `reminder`, so it plays the same sound.
+   * Returns true when a reminder was raised.
+   */
+  tickReminders(remindMs) {
+    if (!(remindMs > 0)) return false;
+    let raised = false;
+    const now = this.now();
+    for (const s of this.sessions.values()) {
+      if (!WAITING_ON_YOU.has(s.state) || this._isMuted(s)) continue;
+      if (now - Math.max(s.since, s.remindedAt || 0) >= remindMs) {
+        s.remindedAt = now;
+        this.alerts.push({ id: s.id, state: s.state, reminder: true });
+        raised = true;
+      }
+    }
+    return raised;
+  }
+
   _get(id) {
     let s = this.sessions.get(id);
     if (!s) {
@@ -144,6 +164,7 @@ class SessionStore {
     s.state = state;
     s.since = this.now();
     s.lateNotified = false;
+    s.remindedAt = 0;
     s.hidden = false; // a hidden idle chat comes back as soon as it does anything
     if (ATTENTION.has(state) && !this._isMuted(s)) this.alerts.push({ id: s.id, state });
     if (state === 'done') this.finished.push({ id: s.id, muted: this._isMuted(s), at: this.now() });

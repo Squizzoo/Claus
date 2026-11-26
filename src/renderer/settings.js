@@ -147,6 +147,8 @@
   });
   let quietButtons = [];
   let patienceButtons = [];
+  const notifyRows = { snooze: [], toast: [], remind: [], autohide: [] };
+  let kindBoxes = [];
 
   $('muted').addEventListener('change', (e) => window.pet.setBehaviour({ muted: e.target.checked }));
   $('streak').addEventListener('change', (e) => pick({ streak: e.target.checked }));
@@ -207,6 +209,46 @@
     if (st.patience && patienceButtons.length !== st.patience.length) patienceButtons = segmented($('patience'), st.patience.map((p) => [p.min, p.label]), (min) => window.pet.setBehaviour({ impatientMin: min }));
     setChecked(patienceButtons, (b) => b.dataset.value === String(st.impatientMin));
     $('streak').checked = look.streak;
+
+    const nt = st.notify;
+    const ch = st.notifyChoices;
+    if (nt && ch) {
+      if (!notifyRows.snooze.length) {
+        notifyRows.snooze = segmented($('snooze'), [[0, 'Off'], ...ch.snooze.map((x) => [x.min, x.label])], (min) => window.pet.snooze(min));
+        notifyRows.toast = segmented($('toast'), ch.toast.map((x) => [x.id, x.label]), (id) => window.pet.setNotify({ toast: id }));
+        notifyRows.remind = segmented($('remind'), ch.remind.map((x) => [x.min, x.label]), (min) => window.pet.setNotify({ remindMin: min }));
+        notifyRows.autohide = segmented($('autohide'), ch.autoHide.map((x) => [x.id, x.label]), (id) => window.pet.setNotify({ autoHide: id }));
+      }
+      if (!kindBoxes.length) {
+        kindBoxes = ch.kinds.map(({ id, label }) => {
+          const wrap = el('label', 'switch');
+          const box = el('input');
+          box.type = 'checkbox';
+          box.dataset.kind = id;
+          box.addEventListener('change', () => window.pet.setNotify({ toastKinds: { [id]: box.checked } }));
+          wrap.append(box, el('span', 'track'), el('span', 'label', label));
+          $('toast-kinds').append(wrap);
+          return box;
+        });
+      }
+      for (const box of kindBoxes) {
+        box.checked = nt.toastKinds[box.dataset.kind] !== false;
+        box.disabled = nt.toast === 'off'; // no toasts at all: the kinds do not matter
+      }
+      $('toast-kinds').classList.toggle('disabled', nt.toast === 'off');
+      const on = nt.snoozeUntil > 0;
+      // while snoozing, "Off" ends it; a preset button restarts it from now
+      setChecked(notifyRows.snooze, (b) => (on ? false : b.dataset.value === '0'));
+      setChecked(notifyRows.toast, (b) => b.dataset.value === nt.toast);
+      setChecked(notifyRows.remind, (b) => b.dataset.value === String(nt.remindMin));
+      setChecked(notifyRows.autohide, (b) => b.dataset.value === nt.autoHide);
+      const note = $('snooze-note');
+      note.hidden = !on;
+      if (on) {
+        const d = new Date(nt.snoozeUntil);
+        note.textContent = `Snoozed until ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}. Press Off to resume now.`;
+      }
+    }
     $('today').textContent = String(st.finishedToday);
   }
 

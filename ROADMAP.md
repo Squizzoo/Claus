@@ -43,18 +43,15 @@ Small changes with a big payoff now that the chat list is getting long.
       celebration), volume 25-100 %, and quiet hours (sound only). Do Not Disturb for a set
       time is the Snooze item of Phase 3.
 
-## Phase 3: Smarter notifications
+## Phase 3: Smarter notifications **[done]**
 
-- [ ] **Windows toast notifications** with an "Open chat" action, for when the pet
-      is hidden or on another monitor.
-- [ ] **Escalation.** Repeat the chime after N minutes, flash the taskbar, or move
-      the pet to the screen edge nearest the cursor.
-- [ ] **Focus awareness.** Don't notify for a chat you are already looking at. (Partly done: a
-      finished chat you open in Claude Desktop is cleared after ~2 s, but the chime for a chat
-      that finishes while open still plays.)
-- [ ] **Auto-hide.** Hide the pet when nothing is open; optionally peek in from the
-      screen edge only when a chat needs you.
-- [ ] **Snooze.** Silence everything for 15 or 60 minutes from the tray.
+- [x] **Windows toast notifications**, for when the pet is hidden or on another monitor. The toast itself is the
+      "Open chat" click (Windows buttons need a packaged app); a terminal chat opens the list instead.
+- [x] **Escalation.** Repeat the chime of a waiting question or approval every 2 to 15 minutes. No taskbar
+      flash (the pet has no taskbar button) and no moving the pet.
+- [x] **Focus awareness.** No sound or toast for a chat you are already looking at in Claude Desktop.
+- [x] **Auto-hide.** Hide the pet when nothing is open, or peek in from the screen edge only when a chat needs you.
+- [x] **Snooze.** Silence sound, toasts and reminders for 15 or 60 minutes, from the tray or the settings window.
 
 ## Phase 4: More information per chat
 
@@ -93,7 +90,7 @@ Small changes with a big payoff now that the chat list is getting long.
 
 1. ~~Phase 1: x check, search, project grouping~~ (done, with the rest of the phase).
 2. ~~Phase 2: pet-picker abstraction and the rest of pet personality~~ (done).
-3. Phase 3: toasts and snooze.
+3. ~~Phase 3: toasts and snooze~~ (done, with the rest of the phase).
 4. Phase 5: settings panel, once there are enough options to need one.
 5. Packaging, when the feature set feels right.
 

@@ -25,4 +25,6 @@ contextBridge.exposeInMainWorld('pet', {
   setLook: (patch) => ipcRenderer.send('set-look', patch),
   setBehaviour: (patch) => ipcRenderer.send('set-behaviour', patch),
   previewSound: (req) => ipcRenderer.send('preview-sound', req),
+  setNotify: (patch) => ipcRenderer.send('set-notify', patch),
+  snooze: (minutes) => ipcRenderer.send('snooze', minutes),
 });

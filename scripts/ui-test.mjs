@@ -11,6 +11,7 @@
 //   node scripts/ui-test.mjs chain <selector>...      click several elements in one run (e.g. '#opts-toggle' then an option)
 //   node scripts/ui-test.mjs dblclick                 double-click the pet: the settings window must open and the list close
 //   node scripts/ui-test.mjs settings <selector>...   click things in the settings window ('[data-pet=dog]', '#tab-btn-sound'...), print what it shows
+//     e.g. snooze for 15 min: settings '#tab-btn-notify' '#snooze button:nth-child(2)'  (tabs: look, sound, notify, behaviour)
 // The panel closes when the window loses focus, so commands that click or type open it first.
 //
 // Output is plain facts (mutation counts, rows, nojump rows) so a human can read it.
