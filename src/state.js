@@ -85,6 +85,7 @@ class SessionStore {
     this.mutedProjects = new Set();
     this.lastClear = null; // {at, items} of the last x / bulk clear, for undo
     this.viewing = null; // {hostId, reports}: the chat open in the foreground Claude window
+    this.activity = false; // something moved "last active" without changing any state (a tool ran, the registry ticked)
   }
 
   /** Muted chats and projects never alert, never get angry and do not count as waiting. */
@@ -147,6 +148,7 @@ class SessionStore {
         cwd: '',
         state: 'idle',
         since: this.now(),
+        turnStart: 0, // when the current turn began (kept across questions and approvals); 0 while idle or done
         lastHookAt: 0,
         hostSessionId: null,
         entrypoint: null,
@@ -161,7 +163,10 @@ class SessionStore {
 
   _set(s, state) {
     if (s.state === state) return false;
+    const before = s.state;
     s.state = state;
+    if (state === 'working' && (before === 'idle' || before === 'done' || !s.turnStart)) s.turnStart = this.now();
+    else if (state === 'idle' || state === 'done') s.turnStart = 0;
     s.since = this.now();
     s.lateNotified = false;
     s.remindedAt = 0;
@@ -183,7 +188,16 @@ class SessionStore {
     s.lastHookAt = this.now();
     if (payload.cwd && !s.cwd) s.cwd = String(payload.cwd);
     if (!s.name) s.name = basename(s.cwd);
-    return this._set(s, next) || !existing;
+    const changed = this._set(s, next) || !existing;
+    if (!changed) this.activity = true;
+    return changed;
+  }
+
+  /** True once after a hook or registry update that only moved "last active": the UI may refresh, but need not rush. */
+  takeActivity() {
+    const a = this.activity;
+    this.activity = false;
+    return a;
   }
 
   /** Merges the session registry (~/.claude/sessions/*.json). Returns true when anything changed. */
@@ -206,6 +220,7 @@ class SessionStore {
       s.entrypoint = e.entrypoint || null;
       s.inRegistry = true;
       s.registryStatus = e.status || null;
+      if ((e.statusUpdatedAt || 0) > s.registryStatusAt) this.activity = true;
       s.registryStatusAt = e.statusUpdatedAt || 0;
 
       // Reconcile with what the registry says. Attention states are only
@@ -386,6 +401,8 @@ class SessionStore {
         project: projectKey(s.cwd),
         state: s.state,
         since: s.since,
+        turnStart: s.turnStart,
+        lastActive: Math.max(s.since, s.lastHookAt, s.registryStatusAt),
         overdue: this._isOverdue(s),
         muted: this._isMuted(s),
         jumpable: Boolean(s.hostSessionId),

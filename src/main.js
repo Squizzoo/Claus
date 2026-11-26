@@ -210,8 +210,22 @@ function celebrate(count) {
   if (win && !win.isDestroyed()) win.webContents.send('celebrate', { count, sound: currentSound() });
 }
 
+// A tool that ran or a registry tick changes no state, only "active 8s ago": refresh the rows at most this often.
+const ACTIVITY_PUSH_MS = 5000;
+let lastPushAt = 0;
+let activityTimer = null;
+function pushActivity() {
+  if (activityTimer) return;
+  activityTimer = setTimeout(() => {
+    activityTimer = null;
+    push();
+  }, Math.max(0, ACTIVITY_PUSH_MS - (Date.now() - lastPushAt)));
+}
+
 function push(opts = {}) {
   if (!win || win.isDestroyed()) return;
+  lastPushAt = Date.now();
+  store.takeActivity(); // this push shows it
   const together = collectFinished();
   const snap = {
     ...store.snapshot(),
@@ -717,6 +731,7 @@ app.whenReady().then(async () => {
     onHook: (p) => {
       if (process.env.CLAUDE_PET_LOG) logEvent(p);
       if (store.applyHook(p)) push();
+      else if (store.takeActivity()) pushActivity();
     },
   });
   try {
@@ -729,6 +744,7 @@ app.whenReady().then(async () => {
 
   const poll = () => {
     if (store.syncRegistry(readRegistry())) push();
+    else if (store.takeActivity()) pushActivity();
   };
   poll();
   setInterval(poll, 2000);

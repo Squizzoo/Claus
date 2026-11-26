@@ -394,3 +394,39 @@ test('clearing, undoing and opening a finished chat are not finishes', () => {
   st.markViewing(null);
   assert.deepEqual(st.takeFinished(), []);
 });
+
+test('a turn is timed from the prompt, across approvals, and ends with the turn', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  const start = c.t;
+  c.advance(60_000);
+  st.applyHook(hook('PermissionRequest', { tool_name: 'Bash' }));
+  c.advance(30_000);
+  st.applyHook(hook('PostToolUse', { tool_name: 'Bash' }));
+  assert.equal(st.snapshot().sessions[0].turnStart, start); // the approval did not restart it
+  c.advance(10_000);
+  st.applyHook(hook('Stop'));
+  assert.equal(st.snapshot().sessions[0].turnStart, 0);
+  c.advance(5_000);
+  st.applyHook(hook('UserPromptSubmit'));
+  assert.equal(st.snapshot().sessions[0].turnStart, c.t); // a new turn starts fresh
+});
+
+test('lastActive follows hooks and the registry, and a hook that changes nothing is reported as activity', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  assert.equal(st.applyHook(hook('UserPromptSubmit')), true);
+  assert.equal(st.takeActivity(), false);
+  c.advance(4_000);
+  assert.equal(st.applyHook(hook('PostToolUse', { tool_name: 'Read' })), false); // still working
+  assert.equal(st.snapshot().sessions[0].lastActive, c.t);
+  assert.equal(st.takeActivity(), true);
+  assert.equal(st.takeActivity(), false); // reported once
+  c.advance(4_000);
+  st.syncRegistry([{ sessionId: SID, cwd: 'C:\\x\\proj', status: 'busy', statusUpdatedAt: c.t }]);
+  assert.equal(st.takeActivity(), true);
+  assert.equal(st.snapshot().sessions[0].lastActive, c.t);
+  st.syncRegistry([{ sessionId: SID, cwd: 'C:\\x\\proj', status: 'busy', statusUpdatedAt: c.t }]);
+  assert.equal(st.takeActivity(), false); // the same timestamp again is not activity
+});

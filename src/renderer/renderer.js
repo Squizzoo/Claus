@@ -69,9 +69,36 @@
     return m < 1 ? 'now' : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h`;
   }
 
-  function dur(ms) {
-    const m = Math.floor(ms / 60000);
-    return m < 1 ? 'under a minute' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+  /** What a row says about time: the long line under the name and the short age of the compact density. */
+  function rowTexts(r, showFolder) {
+    const now = Date.now();
+    let when;
+    if (r.overdue) when = `waiting ${PetView.formatDuration(now - r.since)}!`;
+    else if (r.state === 'working') when = `for ${PetView.formatDuration(now - (r.turnStart || r.since))} · active ${PetView.formatAgo(now - r.lastActive)}`;
+    else when = ago(r.since);
+    return {
+      sub: `${PHRASE[r.state]} ${r.state === 'working' ? '' : '· '}${when}${showFolder && r.folder ? ' · ' + r.folder : ''}`,
+      short: shortAge(r.state === 'working' ? r.turnStart || r.since : r.since),
+    };
+  }
+
+  /** Once a second, rewrites the times in the rows already on screen. The rows themselves are not rebuilt. */
+  function tickTimes() {
+    if (!last.expanded) return;
+    const byId = new Map(last.sessions.map((s) => [s.id, s]));
+    const flat = last.prefs.groupBy === 'none';
+    for (const li of list.querySelectorAll('.row')) {
+      const r = byId.get(li.dataset.id);
+      if (!r) continue;
+      const t = rowTexts(r, flat);
+      const sub = li.querySelector('.sub');
+      if (sub.textContent !== t.sub) {
+        sub.textContent = t.sub;
+        if (r.jumpable) li.title = `${r.name}\n${t.sub}`;
+      }
+      const short = li.querySelector('.short');
+      if (short.textContent !== t.short) short.textContent = t.short;
+    }
   }
 
   // One chip per kind of notification, kept between renders so they don't replay their pop-in.
@@ -162,14 +189,14 @@
     name.append(document.createTextNode(r.name));
     const sub = document.createElement('div');
     sub.className = 'sub';
-    const when = r.overdue ? `waiting ${dur(Date.now() - r.since)}!` : ago(r.since);
-    sub.textContent = `${PHRASE[r.state]} · ${when}${showFolder && r.folder ? ' · ' + r.folder : ''}`;
+    const t = rowTexts(r, showFolder);
+    sub.textContent = t.sub;
     // compact rows show only a short age; the full line is in the tooltip
     const short = document.createElement('span');
     short.className = 'short';
-    short.textContent = shortAge(r.since);
+    short.textContent = t.short;
     text.append(name, sub, short);
-    if (r.jumpable) li.title = `${r.name}\n${sub.textContent}`;
+    if (r.jumpable) li.title = `${r.name}\n${t.sub}`;
 
     const hover = document.createElement('div');
     hover.className = 'hover-acts';
@@ -547,5 +574,6 @@
     if (c.sound) playSound('celebrate', c.sound);
   });
   setInterval(() => last.expanded && render(last), 30_000); // refresh "x min ago"
+  setInterval(tickTimes, 1000); // "working for 4m 12s" counts in place
   render({ ...last, layout: { side: 'right', vertical: 'up' } });
 })();
