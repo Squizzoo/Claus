@@ -13,6 +13,7 @@ const ATTENTION = new Set(['done', 'question', 'approval']);
 const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const STALE_WORKING_MS = 30_000;
 const REGISTRY_GRACE_MS = 60_000;
+const VIEW_REPORTS = 2; // consecutive "this chat is open" reports before a finished chat counts as seen
 
 /**
  * Maps one hook payload to the session's next state.
@@ -82,6 +83,7 @@ class SessionStore {
     this.mutedIds = new Set();
     this.mutedProjects = new Set();
     this.lastClear = null; // {at, items} of the last x / bulk clear, for undo
+    this.viewing = null; // {hostId, reports}: the chat open in the foreground Claude window
   }
 
   /** Muted chats and projects never alert, never get angry and do not count as waiting. */
@@ -220,6 +222,33 @@ class SessionStore {
     return false;
   }
 
+  /** True while some finished chat could be acknowledged by opening it in Claude Desktop. */
+  hasOpenableDone() {
+    for (const s of this.sessions.values()) if (s.state === 'done' && s.hostSessionId) return true;
+    return false;
+  }
+
+  /**
+   * The Desktop chat currently open in the foreground Claude window (its `local_<uuid>`), or null when
+   * Claude is not in front. A finished chat that stays open for VIEW_REPORTS reports in a row counts as
+   * seen: it goes back to idle exactly like jumping to it. Questions and approvals are left alone, since
+   * opening the chat does not answer them. Returns true when anything changed.
+   */
+  markViewing(hostId) {
+    if (!hostId) {
+      this.viewing = null;
+      return false;
+    }
+    if (this.viewing && this.viewing.hostId === hostId) this.viewing.reports++;
+    else this.viewing = { hostId, reports: 1 };
+    if (this.viewing.reports < VIEW_REPORTS) return false;
+    let changed = false;
+    for (const s of this.sessions.values()) {
+      if (s.hostSessionId === hostId && s.state === 'done') changed = this._set(s, 'idle') || changed;
+    }
+    return changed;
+  }
+
   /** Clears one row on request (the x): finished -> idle, idle -> hidden. Undoable. */
   dismissRow(id) {
     const s = this.sessions.get(id);
@@ -341,4 +370,4 @@ class SessionStore {
   }
 }
 
-module.exports = { SessionStore, nextState, PRIORITY, ATTENTION, SESSION_ID, DEFAULT_IMPATIENT_MS, UNDO_MS, basename, projectKey };
+module.exports = { SessionStore, nextState, PRIORITY, ATTENTION, SESSION_ID, DEFAULT_IMPATIENT_MS, UNDO_MS, VIEW_REPORTS, basename, projectKey };
