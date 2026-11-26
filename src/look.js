@@ -22,6 +22,7 @@ const DEFAULTS = {
   volume: PetSounds.DEFAULT_VOLUME,
   quiet: 'off',
   streak: true, // show "n finished today" in the list header
+  showTokens: true, // show a chat's token count on its row
 };
 
 // Every setting is one value out of a fixed list.
@@ -35,6 +36,7 @@ function choices() {
     volume: PetSounds.VOLUMES,
     quiet: QUIET_ORDER,
     streak: [true, false],
+    showTokens: [true, false],
   };
 }
 

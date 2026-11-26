@@ -45,6 +45,8 @@ function readRegistry(dir = DIR) {
       statusUpdatedAt: j.statusUpdatedAt,
       hostSessionId: j.hostSessionId,
       entrypoint: j.entrypoint,
+      pid: j.pid,
+      pidDomain: j.pidDomain,
     });
   }
   return out;

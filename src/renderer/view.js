@@ -11,6 +11,29 @@
   const SIZES = { rowComfortable: 54, rowCompact: 34, group: 30, header: 40, search: 44, options: 64, footer: 40, pad: 8 };
   // options is two rows of pills at the 300 px panel width (wraps), not one.
 
+  /** A length of time for a row: `42s`, `4m 12s`, `1h 05m`. */
+  function formatDuration(ms) {
+    const s = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`;
+    return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+  }
+
+  /** A token count for a row: `812`, `4.2k`, `48k`, `1.2M`. */
+  function formatTokens(n) {
+    n = Math.max(0, Math.floor(Number(n) || 0));
+    if (n < 1000) return String(n);
+    if (n < 10_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+    if (n < 999_500) return `${Math.round(n / 1000)}k`;
+    return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  }
+
+  /** How long ago something happened, to the second: `just now` under 5 s, else `8s ago`, `2m 10s ago`. */
+  function formatAgo(ms) {
+    return ms < 5000 ? 'just now' : `${formatDuration(ms)} ago`;
+  }
+
   const tokens = (query) => String(query || '').toLowerCase().split(/\s+/).filter(Boolean);
 
   function matches(session, words) {
@@ -120,5 +143,5 @@
     return Math.min(h, max);
   }
 
-  return { buildView, firstJumpable, wantedHeight, PRIORITY, PINNED_KEY, SIZES };
+  return { buildView, firstJumpable, wantedHeight, formatDuration, formatAgo, formatTokens, PRIORITY, PINNED_KEY, SIZES };
 });

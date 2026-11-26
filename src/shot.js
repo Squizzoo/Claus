@@ -139,6 +139,8 @@ async function settingsShots(prefix, { openSettings, setLook, store, push }) {
   await snap('4-sound');
   await click('#tab-btn-behaviour');
   await snap('5-behaviour');
+  await click('#tab-btn-today');
+  await snap('6-today');
   setLook({ pet: 'cat', skin: 'default', accessory: 'none', mustache: 'none' });
   w.destroy();
 }
@@ -256,6 +258,18 @@ async function run(win, prefix, { store, setPanel, push, setPrefs, setLook, cele
   store.dismissAllDone();
   await evalIn(`document.getElementById('opts-toggle').click()`);
   await snap('20-list-options-undo');
+
+  // ---- more per chat: how long it has been working, token counts, and a chat that lives in a terminal ----
+  await evalIn(`document.getElementById('opts-toggle').click()`);
+  const now = Date.now();
+  const c5 = store.sessions.get('c5');
+  c5.turnStart = now - 252_000;
+  c5.lastHookAt = now - 8_000;
+  store.setUsage('c5', { input: 6, output: 1500, cacheWrite: 41_000, cacheRead: 900_000 });
+  store.setUsage('c1', { input: 12, output: 800, cacheWrite: 3_100, cacheRead: 120_000 });
+  chat('c9', 'printuploader.com', 'Run the tests in a terminal', 'UserPromptSubmit');
+  Object.assign(store.sessions.get('c9'), { hostSessionId: null, pid: 4321, entrypoint: 'cli', turnStart: now - 75_000 });
+  await snap('22-list-details');
 
   // ---- celebration: confetti and sparkles when several chats finish together ----
   setPanel(0);

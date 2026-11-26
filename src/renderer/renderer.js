@@ -69,9 +69,54 @@
     return m < 1 ? 'now' : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h`;
   }
 
-  function dur(ms) {
-    const m = Math.floor(ms / 60000);
-    return m < 1 ? 'under a minute' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+  const showTokens = (r) => r.tokens > 0 && !(last.look && last.look.showTokens === false);
+
+  /** The tooltip of a row: its name and the line under it, then what the token badge adds up. */
+  function rowTitle(r, sub) {
+    const u = showTokens(r) ? r.usage : null;
+    const f = PetView.formatTokens;
+    const tip = u ? `\nTokens: ${f(u.input)} in · ${f(u.output)} out · ${f(u.cacheWrite)} cache written · ${f(u.cacheRead)} cache read` : '';
+    if (r.terminal) return `${r.name}\n${sub}\nClick to bring its terminal window forward${tip}`;
+    return r.jumpable ? `${r.name}\n${sub}${tip}` : `This chat is not in Claude Desktop, so it cannot be opened from here${tip}`;
+  }
+
+  /** What a row says about time: the long line under the name and the short age of the compact density. */
+  function rowTexts(r, showFolder) {
+    const now = Date.now();
+    let when;
+    if (r.overdue) when = `waiting ${PetView.formatDuration(now - r.since)}!`;
+    else if (r.state === 'working') when = `for ${PetView.formatDuration(now - (r.turnStart || r.since))} · active ${PetView.formatAgo(now - r.lastActive)}`;
+    else when = ago(r.since);
+    const tokens = showTokens(r) ? ` · ${PetView.formatTokens(r.tokens)} tok` : '';
+    return {
+      sub: `${PHRASE[r.state]} ${r.state === 'working' ? '' : '· '}${when}${tokens}${showFolder && r.folder ? ' · ' + r.folder : ''}`,
+      short: shortAge(r.state === 'working' ? r.turnStart || r.since : r.since),
+    };
+  }
+
+  /** Changes the text of an element in place (its text node keeps its identity, so it is not a redraw of the list). */
+  function setText(el, text) {
+    if (el.firstChild && el.firstChild.nodeType === Node.TEXT_NODE) el.firstChild.data = text;
+    else el.textContent = text;
+  }
+
+  /** Once a second, rewrites the times in the rows already on screen. The rows themselves are not rebuilt. */
+  function tickTimes() {
+    if (!last.expanded) return;
+    const byId = new Map(last.sessions.map((s) => [s.id, s]));
+    const flat = last.prefs.groupBy === 'none';
+    for (const li of list.querySelectorAll('.row')) {
+      const r = byId.get(li.dataset.id);
+      if (!r) continue;
+      const t = rowTexts(r, flat);
+      const sub = li.querySelector('.sub');
+      if (sub.textContent !== t.sub) {
+        setText(sub, t.sub);
+        li.title = rowTitle(r, t.sub);
+      }
+      const short = li.querySelector('.short');
+      if (short.textContent !== t.short) setText(short, t.short);
+    }
   }
 
   // One chip per kind of notification, kept between renders so they don't replay their pop-in.
@@ -147,6 +192,7 @@
     li.dataset.jump = r.jumpable ? '1' : '';
     li.tabIndex = 0;
     li.title = r.jumpable ? 'Open this chat' : 'This chat is not in Claude Desktop, so it cannot be opened from here';
+    li.classList.toggle('terminal', Boolean(r.terminal));
 
     const dot = document.createElement('span');
     dot.className = 'dot';
@@ -162,14 +208,14 @@
     name.append(document.createTextNode(r.name));
     const sub = document.createElement('div');
     sub.className = 'sub';
-    const when = r.overdue ? `waiting ${dur(Date.now() - r.since)}!` : ago(r.since);
-    sub.textContent = `${PHRASE[r.state]} · ${when}${showFolder && r.folder ? ' · ' + r.folder : ''}`;
+    const t = rowTexts(r, showFolder);
+    sub.textContent = t.sub;
     // compact rows show only a short age; the full line is in the tooltip
     const short = document.createElement('span');
     short.className = 'short';
-    short.textContent = shortAge(r.since);
+    short.textContent = t.short;
     text.append(name, sub, short);
-    if (r.jumpable) li.title = `${r.name}\n${sub.textContent}`;
+    li.title = rowTitle(r, t.sub);
 
     const hover = document.createElement('div');
     hover.className = 'hover-acts';
@@ -302,7 +348,9 @@
     const snoozed = state.snoozeUntil > 0 ? `snoozed until ${new Date(state.snoozeUntil).toTimeString().slice(0, 5)}` : '';
     const waiting = `${state.attention} waiting · ${state.sessions.length} open${today ? ' · ' + today : ''}${snoozed ? ' · ' + snoozed : ''}`;
     count.textContent = !state.sessions.length ? today : query.trim() ? `${view.shown} of ${state.sessions.length} shown` : waiting;
-    count.title = [today ? `${state.finishedToday} chats finished today` : '', snoozed ? `Sounds, toasts and reminders are ${snoozed}` : ''].filter(Boolean).join(' | ');
+    const d = state.daily;
+    const waited = d && d.waits ? `Today ${d.waits} wait${d.waits === 1 ? '' : 's'} on you, longest ${PetView.formatDuration(d.longestMs)}, ${PetView.formatDuration(d.waitMs)} in all` : '';
+    count.title = [today ? `${state.finishedToday} chats finished today` : '', waited, snoozed ? `Sounds, toasts and reminders are ${snoozed}` : ''].filter(Boolean).join(' | ');
     renderBars(state, view);
     empty.hidden = view.shown > 0;
     list.hidden = view.shown === 0;
@@ -313,7 +361,7 @@
     const flat = state.prefs.groupBy === 'none';
     const sig = JSON.stringify([flat, view.items.map((i) => (i.type === 'group'
       ? [i.key, i.label, i.count, i.state, i.late, i.muted, i.collapsed]
-      : [i.id, i.name, i.state, i.jumpable, i.overdue, i.muted, i.pinned, i.mutedChat, i.folder, i.since && (i.overdue ? Math.floor((Date.now() - i.since) / 60000) : ago(i.since))]))]);
+      : [i.id, i.name, i.state, i.jumpable, i.terminal, i.overdue, i.muted, i.pinned, i.mutedChat, i.folder, i.tokens, i.since && (i.overdue ? Math.floor((Date.now() - i.since) / 60000) : ago(i.since))]))]);
     if (sig !== listSig) {
       listSig = sig;
       const keep = focusedKey();
@@ -377,6 +425,12 @@
     const up = hit(e);
     if (!down || !up || down.type !== up.type || down.id !== up.id || down.key !== up.key || down.act !== up.act) return; // released somewhere else
     act(up);
+  });
+  // right-click on a chat: its quick actions (a native menu, built in the main process)
+  list.addEventListener('contextmenu', (e) => {
+    const h = hit(e);
+    e.preventDefault();
+    if (h && h.type === 'row' && h.id) window.pet.rowMenu(h.id);
   });
   list.addEventListener('keydown', (e) => {
     if (e.target.closest('input')) return;
@@ -547,5 +601,6 @@
     if (c.sound) playSound('celebrate', c.sound);
   });
   setInterval(() => last.expanded && render(last), 30_000); // refresh "x min ago"
+  setInterval(tickTimes, 1000); // "working for 4m 12s" counts in place
   render({ ...last, layout: { side: 'right', vertical: 'up' } });
 })();

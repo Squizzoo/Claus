@@ -1,20 +1,25 @@
 'use strict';
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard } = require('electron');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { SessionStore } = require('./state');
 const { readRegistry } = require('./registry');
 const { createServer, DEFAULT_PORT } = require('./server');
 const { jumpUrl } = require('./jump');
-const { focusClaude } = require('./focus');
+const { focusClaude, focusWindowOf } = require('./focus');
 const { createOpenChatWatcher } = require('./open-chat');
 const prefsLib = require('./prefs');
 const lookLib = require('./look');
 const PetArt = require('./renderer/pets');
 const PetSounds = require('./renderer/sounds');
+const PetView = require('./renderer/view');
 const celebrateLib = require('./celebrate');
+const dailyLib = require('./daily');
 const notifyLib = require('./notify');
 const { showToast } = require('./toast');
+const { createTranscriptReader } = require('./transcript');
+const { rowMenuTemplate, vscodeUrl, terminalCommand } = require('./row-menu');
 
 const PORT = Number(process.env.CLAUDE_PET_PORT) || DEFAULT_PORT;
 const PET = 150; // collapsed window: the pet only
@@ -27,13 +32,14 @@ app.setAppUserModelId('com.claus.pet'); // gives the Windows toasts a stable ide
 
 const store = new SessionStore();
 const openChat = createOpenChatWatcher();
+const transcripts = createTranscriptReader();
 let win = null; // the pet: always PET x PET, never resized (resizing a transparent window blinks it)
 let panelWin = null; // the chat list: its own window next to the pet, shown and hidden
 let settingsWin = null; // the settings window (a normal window, opened by double-clicking the pet or from the tray)
 let rebuildTray = () => {}; // set by buildTray; called when a setting changes elsewhere so the tray checkmarks stay right
 let tray = null;
 let server = null;
-let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, notify: notifyLib.DEFAULTS, streak: celebrateLib.EMPTY }; // impatientMin 0 = never angry
+let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, notify: notifyLib.DEFAULTS, streak: celebrateLib.EMPTY, daily: dailyLib.EMPTY }; // impatientMin 0 = never angry
 let petPos = { x: 0, y: 0 }; // top-left of the pet, the source of truth for position
 let panelH = 0; // extra height wanted by the list (0 = collapsed)
 let layout = { side: 'right', vertical: 'up' };
@@ -51,6 +57,7 @@ function loadSettings() {
   settings.look = lookLib.sanitize(settings.look);
   settings.notify = notifyLib.sanitize(settings.notify);
   settings.streak = celebrateLib.sanitizeStreak(settings.streak);
+  settings.daily = dailyLib.sanitize(settings.daily);
   Object.assign(settings, lookLib.sanitizeBehaviour(settings, lookLib.BEHAVIOUR_DEFAULTS));
   applyPrefs();
 }
@@ -176,7 +183,7 @@ function createWindow() {
   // The list closes when focus goes somewhere else. Clicking the pet moves focus between our own
   // two windows, so wait a moment and look: the pet's own click (toggle-panel) decides in that case.
   const closeWhenAway = () => setTimeout(() => {
-    if (panelH > 0 && !drag && !win.isFocused() && !panelWin.isFocused()) {
+    if (panelH > 0 && !drag && !rowMenuOpen && !win.isFocused() && !panelWin.isFocused()) {
       debugLog('focus left the pet: closing the list');
       setPanel(0);
     }
@@ -195,6 +202,10 @@ function currentSound() {
 }
 
 const celebrator = celebrateLib.createCelebrator();
+/** Today's finished chats, waits and work for the settings window, the tray and the header tooltip. */
+const todaySummary = () => dailyLib.summary(settings.daily, celebrateLib.finishedToday(settings.streak, new Date()), new Date());
+/** A length for the tray: `6m`, `1h 05m`. */
+const clockLength = (ms) => (ms < 60_000 ? PetView.formatDuration(ms) :PetView.formatDuration(Math.floor(ms / 60_000) * 60_000).replace(/ \d\d?s$/, ''));
 /** Counts the chats that just finished (the day counter) and says how many finished together, if that is a celebration. */
 function collectFinished() {
   let together = 0;
@@ -203,15 +214,35 @@ function collectFinished() {
     settings.streak = celebrateLib.bumpStreak(settings.streak, new Date(e.at));
     if (!e.muted) together = Math.max(together, celebrator.record(e.at));
   }
-  if (finished.length) saveSettings();
+  const times = store.takeTimes();
+  for (const ms of times.waits) settings.daily = dailyLib.recordWait(settings.daily, ms, new Date());
+  for (const ms of times.work) settings.daily = dailyLib.recordWork(settings.daily, ms, new Date());
+  if (finished.length || times.waits.length || times.work.length) {
+    saveSettings();
+    rebuildTray(); // the tray shows today's numbers
+  }
   return together;
 }
 function celebrate(count) {
   if (win && !win.isDestroyed()) win.webContents.send('celebrate', { count, sound: currentSound() });
 }
 
+// A tool that ran or a registry tick changes no state, only "active 8s ago": refresh the rows at most this often.
+const ACTIVITY_PUSH_MS = 5000;
+let lastPushAt = 0;
+let activityTimer = null;
+function pushActivity() {
+  if (activityTimer) return;
+  activityTimer = setTimeout(() => {
+    activityTimer = null;
+    push();
+  }, Math.max(0, ACTIVITY_PUSH_MS - (Date.now() - lastPushAt)));
+}
+
 function push(opts = {}) {
   if (!win || win.isDestroyed()) return;
+  lastPushAt = Date.now();
+  store.takeActivity(); // this push shows it
   const together = collectFinished();
   const snap = {
     ...store.snapshot(),
@@ -219,6 +250,7 @@ function push(opts = {}) {
     prefs: settings.prefs,
     look: settings.look,
     finishedToday: celebrateLib.finishedToday(settings.streak, new Date()),
+    daily: todaySummary(),
     snoozeUntil: snoozed() ? settings.notify.snoozeUntil : 0,
     idleActions: !SHOT_RUN, // screenshots must not catch the pet half-way through a random yawn
     layout,
@@ -229,6 +261,25 @@ function push(opts = {}) {
   dispatchAlerts(store.takeAlerts(), together, petShown && win.isVisible()); // before updateAutoHide below may show the pet
   if (together && !SHOT_RUN) celebrate(together); // shot runs trigger it themselves, so it does not land in other pictures
   updateAutoHide(snap);
+}
+
+// ---------- token totals ----------
+// Reads only what was appended to each chat's transcript since the last time, and keeps the counters (never the text).
+let refreshingTokens = false;
+async function refreshTokens(only) {
+  if (refreshingTokens) return;
+  refreshingTokens = true;
+  try {
+    const ids = only || [...store.ids()];
+    if (!only) transcripts.keepOnly(store.ids());
+    let changed = false;
+    for (const id of ids) {
+      if (await transcripts.refresh(id)) changed = store.setUsage(id, transcripts.totals(id)) || changed;
+    }
+    if (changed) push();
+  } finally {
+    refreshingTokens = false;
+  }
 }
 
 // ---------- alerts: sound, toast, focus and snooze ----------
@@ -270,10 +321,11 @@ function deliver(alerts, together, petWasVisible) {
   }
 }
 
-/** A toast was clicked: open the chat, or for a chat that cannot be opened (terminal) bring up the pet and its list. */
+/** A toast was clicked: open the chat or raise its terminal window; for a chat that can do neither, bring up the pet and its list. */
 function openFromToast(id) {
   debugLog(`toast clicked ${id.slice(0, 8)}`);
-  if (store.hostIdOf(id)) {
+  const info = store.infoOf(id);
+  if (info && (info.hostSessionId || info.focusable)) {
     jumpTo(id);
     return;
   }
@@ -437,6 +489,7 @@ function settingsSnapshot() {
     muted: settings.muted,
     impatientMin: settings.impatientMin,
     finishedToday: celebrateLib.finishedToday(settings.streak, new Date()),
+    daily: todaySummary(),
     quietNow: lookLib.isQuiet(new Date(), settings.look.quiet),
     notify: { ...settings.notify, snoozeUntil: snoozed() ? settings.notify.snoozeUntil : 0 },
     notifyChoices: { toast: notifyLib.TOAST, kinds: notifyLib.KINDS, remind: notifyLib.REMIND, autoHide: notifyLib.AUTO_HIDE, snooze: notifyLib.SNOOZE },
@@ -569,10 +622,7 @@ ipcMain.on('drag-end', () => {
 /** Opens a chat in Claude Desktop and raises the window above whatever covers it. */
 async function jumpTo(id) {
   const url = jumpUrl(store.hostIdOf(id));
-  if (!url) {
-    debugLog(`jump ${id.slice(0, 8)} refused: no desktop session id`);
-    return false;
-  }
+  if (!url) return focusTerminal(id);
   store.dismiss(id);
   setPanel(0);
   push();
@@ -587,10 +637,89 @@ async function jumpTo(id) {
   debugLog(`jump ${id.slice(0, 8)} focus: ${await raised}`);
   return true;
 }
+/**
+ * A chat that does not run in Claude Desktop (a terminal, VS Code): raise the window its process lives in.
+ * A terminal with tabs comes forward as a whole window; the pet cannot pick the tab.
+ */
+async function focusTerminal(id) {
+  const info = store.infoOf(id);
+  if (!info || !info.focusable) {
+    debugLog(`jump ${id.slice(0, 8)} refused: no desktop session id and no window to raise`);
+    return false;
+  }
+  store.dismiss(id);
+  setPanel(0);
+  push();
+  debugLog(`jump ${id.slice(0, 8)} terminal focus: ${await focusWindowOf(info.pid)}`);
+  return true;
+}
 ipcMain.on('jump', (_e, id) => {
   debugLog(`ipc jump ${String(id).slice(0, 8)}`);
   jumpTo(String(id));
 });
+// ---------- right-click menu of a row ----------
+let rowMenuOpen = false; // the list must not close just because the menu took focus
+
+const isFolder = (p) => {
+  try {
+    return path.isAbsolute(p) && fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+/** Windows Terminal in the folder, or plain PowerShell when it is not installed. Started without a shell, detached. */
+function openTerminalIn(cwd) {
+  const wt = terminalCommand(cwd);
+  if (!wt) return;
+  const start = (cmd, args, opts) => {
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore', ...opts });
+    child.unref();
+    return child;
+  };
+  const fallback = () => start('powershell.exe', ['-NoExit'], { cwd });
+  try {
+    start(wt.cmd, wt.args).on('error', fallback);
+  } catch {
+    fallback();
+  }
+}
+
+/** What each menu item does. `info` comes from the store, never from the renderer: the renderer only says which chat. */
+const rowActions = {
+  open: (id) => jumpTo(id),
+  focus: (id) => jumpTo(id),
+  'copy-id': (id, info) => clipboard.writeText(info.sessionId),
+  folder: (id, info) => isFolder(info.cwd) && shell.openPath(info.cwd),
+  vscode: (id, info) => {
+    const url = isFolder(info.cwd) && vscodeUrl(info.cwd);
+    if (url) shell.openExternal(url).catch(() => {});
+  },
+  terminal: (id, info) => isFolder(info.cwd) && openTerminalIn(info.cwd),
+  pin: (id) => updatePrefs({ pinned: toggled(settings.prefs.pinned, id) }),
+  mute: (id) => updatePrefs({ mutedChats: toggled(settings.prefs.mutedChats, id) }),
+};
+const toggled = (arr, v) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+
+ipcMain.on('row-menu', (_e, id) => {
+  id = String(id);
+  const info = store.infoOf(id);
+  if (!info || !panelWin || panelWin.isDestroyed()) return;
+  debugLog(`ipc row-menu ${id.slice(0, 8)}`);
+  const template = rowMenuTemplate(info, settings.prefs).map((item) => {
+    if (!item.id) return item;
+    return {
+      label: item.label,
+      click: () => {
+        debugLog(`row-menu ${item.id} ${id.slice(0, 8)}`);
+        rowActions[item.id](id, info);
+      },
+    };
+  });
+  rowMenuOpen = true;
+  Menu.buildFromTemplate(template).popup({ window: panelWin, callback: () => { rowMenuOpen = false; } });
+});
+
 // The x on a row: finished -> idle, idle -> hidden. Both can be undone.
 ipcMain.on('dismiss', (_e, id) => {
   debugLog(`ipc dismiss ${String(id).slice(0, 8)}`);
@@ -688,6 +817,7 @@ function buildTray() {
           label: 'Gets angry after waiting',
           submenu: lookLib.PATIENCE.map(({ min, label }) => ({ label, type: 'radio', checked: settings.impatientMin === min, click: () => applyBehaviour({ impatientMin: min }) })),
         },
+        { label: `Today: ${todaySummary().finished} finished${todaySummary().waits ? ` · longest wait ${clockLength(todaySummary().longestMs)}` : ''}`, enabled: false },
         { label: 'Show chats finished today', type: 'checkbox', checked: settings.look.streak, click: (i) => updateLook({ streak: i.checked }) },
         {
           label: snoozed() ? `Snoozed until ${notifyLib.clock(settings.notify.snoozeUntil)} - Resume` : 'Snooze',
@@ -717,6 +847,8 @@ app.whenReady().then(async () => {
     onHook: (p) => {
       if (process.env.CLAUDE_PET_LOG) logEvent(p);
       if (store.applyHook(p)) push();
+      else if (store.takeActivity()) pushActivity();
+      if (p.hook_event_name === 'Stop' && store.sessions.has(p.session_id)) refreshTokens([p.session_id]); // a finished turn is when the total is worth knowing
     },
   });
   try {
@@ -729,6 +861,7 @@ app.whenReady().then(async () => {
 
   const poll = () => {
     if (store.syncRegistry(readRegistry())) push();
+    else if (store.takeActivity()) pushActivity();
   };
   poll();
   setInterval(poll, 2000);
@@ -737,6 +870,10 @@ app.whenReady().then(async () => {
     const reminded = !snoozed() && store.tickReminders(settings.notify.remindMin * 60_000); // and chimes again every few minutes
     if (overdue || reminded) push();
   }, 5000);
+  if (!SHOT_RUN) {
+    refreshTokens();
+    setInterval(() => refreshTokens(), 10_000); // chats that are still running move their total between hooks
+  }
   setInterval(() => updateAutoHide(store.snapshot()), 1000); // the grace before the pet hides runs on time, not on events
   armSnooze(); // a snooze that survived a restart still has to end
   // the "finished today" number starts again at midnight even when nothing else happens
@@ -745,6 +882,7 @@ app.whenReady().then(async () => {
     const day = celebrateLib.dayKey(new Date());
     if (day !== shownDay) {
       shownDay = day;
+      rebuildTray(); // its "Today" line starts again too
       push();
     }
   }, 30_000);
