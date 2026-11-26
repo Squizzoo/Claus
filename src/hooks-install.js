@@ -75,7 +75,19 @@ function status({ file = defaultFile(), port = DEFAULT_PORT } = {}) {
     const installed = countPet(json, port);
     return { file, exists: true, installed, complete: installed === Object.keys(EVENTS).length, events };
   } catch (err) {
-    return { file, exists: false, installed: 0, complete: false, events: [], error: err.code === 'ENOENT' ? 'not found' : 'unreadable' };
+    // `missing`: there is no settings file yet but Claude Code's folder exists, so the file can simply be created
+    const missing = err.code === 'ENOENT' && fs.existsSync(path.dirname(file));
+    return { file, exists: false, missing, installed: 0, complete: false, events: [], error: err.code === 'ENOENT' ? 'not found' : 'unreadable' };
+  }
+}
+
+/** The file's text and data; a file that does not exist yet reads as an empty settings object (`missing: true`). Other errors throw. */
+function loadOrEmpty(file) {
+  try {
+    return { ...load(file), missing: false };
+  } catch (err) {
+    if (err.code === 'ENOENT' && fs.existsSync(path.dirname(file))) return { text: '', json: {}, missing: true };
+    throw err;
   }
 }
 
@@ -85,10 +97,10 @@ function status({ file = defaultFile(), port = DEFAULT_PORT } = {}) {
  */
 function plan({ action, file = defaultFile(), port = DEFAULT_PORT }) {
   if (action !== 'install' && action !== 'uninstall') throw new Error('action must be install or uninstall');
-  const { text, json } = load(file);
+  const { text, json, missing } = loadOrEmpty(file);
   const next = action === 'install' ? withPet(json, port) : withoutPet(json, port);
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
-  const body = JSON.stringify(next, null, indentOf(text)).replace(/\n/g, eol) + (/\r?\n$/.test(text) ? eol : '');
+  const body = JSON.stringify(next, null, indentOf(text)).replace(/\n/g, eol) + (missing || /\r?\n$/.test(text) ? eol : '');
   // Sanity: everything outside "hooks" must be the same data.
   const strip = (j) => { const c = structuredClone(j); delete c.hooks; return JSON.stringify(c); };
   if (strip(json) !== strip(next)) throw new Error('refusing: non-hook settings would change');
@@ -97,7 +109,8 @@ function plan({ action, file = defaultFile(), port = DEFAULT_PORT }) {
     file,
     port,
     body,
-    changed: body !== text,
+    missing,
+    changed: missing ? action === 'install' : body !== text, // removing hooks from a file that does not exist changes nothing
     petEntriesBefore: countPet(json, port),
     petEntriesAfter: countPet(next, port),
     eventsBefore: Object.keys(json.hooks || {}),
@@ -109,6 +122,11 @@ function plan({ action, file = defaultFile(), port = DEFAULT_PORT }) {
 /** Writes a planned change: backup first, then the file, which must still parse. Returns { written, backup }. */
 function apply(p) {
   if (!p.changed) return { written: false, backup: null };
+  if (p.missing) {
+    fs.writeFileSync(p.file, p.body); // a new file: nothing to back up
+    JSON.parse(fs.readFileSync(p.file, 'utf8'));
+    return { written: true, backup: null };
+  }
   const backup = `${p.file}.pet-bak`;
   fs.copyFileSync(p.file, backup);
   fs.writeFileSync(p.file, p.body);

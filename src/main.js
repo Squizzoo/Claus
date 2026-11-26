@@ -634,7 +634,7 @@ async function changeHooks(action, parent) {
 /** The very first start of an installed build: offer the hooks once (never nags again, whatever the answer was). */
 async function firstRun() {
   const st = hooksStatus(true);
-  if (!systemLib.shouldAskSetup({ settings: settings.system, firstRun: caps().firstRun, forced: FORCE_SETUP, hooksComplete: st.complete, hooksFileExists: st.exists })) return;
+  if (!systemLib.shouldAskSetup({ settings: settings.system, firstRun: caps().firstRun, forced: FORCE_SETUP, hooksComplete: st.complete, hooksFileExists: st.exists || st.missing })) return;
   settings.system = systemLib.merge(settings.system, { setupAsked: true });
   saveSettings();
   debugLog('first run: offering the hooks');
@@ -721,7 +721,7 @@ function systemSnapshot() {
     version: app.getVersion(),
     portable: IS_PORTABLE,
     packaged: app.isPackaged,
-    hooks: { exists: h.exists, installed: h.installed, total: Object.keys(hooksLib.EVENTS).length, complete: h.complete, file: h.file, error: h.error || '' },
+    hooks: { exists: h.exists, missing: Boolean(h.missing), installed: h.installed, total: Object.keys(hooksLib.EVENTS).length, complete: h.complete, file: h.file, error: h.error || '' },
     update: { status: u.status, version: u.version, percent: u.percent, text: updaterLib.describe(u) },
   };
 }

@@ -88,6 +88,21 @@ test('plan rejects an unknown action and an unreadable file', () => {
   const { dir, file } = tmp();
   fs.writeFileSync(file, '{}');
   assert.throws(() => H.plan({ action: 'drop', file, port: PORT }));
-  assert.throws(() => H.plan({ action: 'install', file: path.join(dir, 'missing.json'), port: PORT }));
+  assert.throws(() => H.plan({ action: 'install', file: path.join(dir, 'gone', 'missing.json'), port: PORT }));
+  fs.rmSync(dir, { recursive: true });
+});
+
+test('a missing settings file is created by install (no backup), but only when its folder exists', () => {
+  const { dir, file } = tmp();
+  assert.equal(H.status({ file, port: PORT }).missing, true);
+  const p = H.plan({ action: 'install', file, port: PORT });
+  assert.equal(p.changed, true);
+  assert.deepEqual(H.apply(p), { written: true, backup: null });
+  assert.equal(H.status({ file, port: PORT }).complete, true);
+  fs.rmSync(file);
+  assert.equal(H.plan({ action: 'uninstall', file, port: PORT }).changed, false);
+  const nowhere = path.join(dir, 'no-such-folder', 'settings.json');
+  assert.equal(H.status({ file: nowhere, port: PORT }).missing, false);
+  assert.throws(() => H.plan({ action: 'install', file: nowhere, port: PORT }));
   fs.rmSync(dir, { recursive: true });
 });

@@ -321,10 +321,10 @@
     const h = sys.hooks;
     const hs = $('hooks-state');
     hs.className = h.complete ? 'status' : 'status warn';
-    hs.textContent = !h.exists
+    hs.textContent = h.missing ? `No settings file yet: installing creates it (${h.file})` : !h.exists
       ? `Claude Code's settings file was not found or cannot be read (${h.error || 'unknown'}): ${h.file}`
       : h.complete ? `Installed (${h.installed} of ${h.total} entries) in ${h.file}` : h.installed ? `Partly installed (${h.installed} of ${h.total} entries): install again to complete it. ${h.file}` : `Not installed: the pet cannot hear from Claude Code yet. ${h.file}`;
-    $('hooks-install').disabled = !h.exists || h.complete;
+    $('hooks-install').disabled = !(h.exists || h.missing) || h.complete;
     $('hooks-remove').disabled = !h.exists || h.installed === 0;
     $('login').checked = sys.login;
     $('login').disabled = !sys.loginAvailable;
