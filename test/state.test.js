@@ -265,3 +265,64 @@ test('dismiss only clears "done"', () => {
   assert.equal(st.dismiss(SID), false);
   assert.equal(st.snapshot().mood, 'approval');
 });
+
+// ---------- opening a finished chat in Claude Desktop ----------
+const HOST = 'local_9a404a4d-21a9-4128-90f6-40efc8338b0b';
+const registryEntry = (sessionId, hostSessionId, extra = {}) => ({ sessionId, name: sessionId, cwd: 'C:\\x\\proj', status: 'idle', hostSessionId, ...extra });
+function finishedDesktopChat() {
+  const st = new SessionStore();
+  st.syncRegistry([registryEntry('s1', HOST), registryEntry('s2', 'local_other-chat-0000')]);
+  st.applyHook({ ...hook('Stop'), session_id: 's1' });
+  st.applyHook({ ...hook('Stop'), session_id: 's2' });
+  return st;
+}
+
+test('a finished chat that stays open in Claude counts as seen', () => {
+  const st = finishedDesktopChat();
+  assert.ok(st.hasOpenableDone());
+  assert.equal(st.markViewing(HOST), false); // one glance is not enough
+  assert.equal(st.markViewing(HOST), true);
+  const byId = Object.fromEntries(st.snapshot().sessions.map((s) => [s.id, s.state]));
+  assert.deepEqual(byId, { s1: 'idle', s2: 'done' }); // only the open chat is cleared
+  assert.equal(st.snapshot().hiddenCount, 0); // like jumping: cleared, never hidden, no undo
+  assert.equal(st.snapshot().undoable, false);
+});
+
+test('switching chats or leaving Claude restarts the viewing count', () => {
+  const st = finishedDesktopChat();
+  st.markViewing(HOST);
+  st.markViewing(null); // Claude is no longer in front
+  assert.equal(st.markViewing(HOST), false);
+  st.markViewing('local_other-chat-0000');
+  assert.equal(st.markViewing(HOST), false);
+  assert.equal(st.markViewing(HOST), true);
+});
+
+test('opening a chat does not answer a question or approval', () => {
+  const st = new SessionStore();
+  st.syncRegistry([registryEntry('s1', HOST)]);
+  st.applyHook({ ...hook('PermissionRequest', { tool_name: 'Bash' }), session_id: 's1' });
+  st.markViewing(HOST);
+  assert.equal(st.markViewing(HOST), false);
+  assert.equal(st.snapshot().sessions[0].state, 'approval');
+});
+
+test('chats without a Desktop id are never matched or watched for', () => {
+  const st = new SessionStore();
+  st.applyHook({ ...hook('Stop'), session_id: 's1' }); // e.g. a VS Code chat: no hostSessionId
+  assert.equal(st.hasOpenableDone(), false);
+  st.markViewing(HOST);
+  assert.equal(st.markViewing(HOST), false);
+  assert.equal(st.snapshot().sessions[0].state, 'done');
+});
+
+test('a chat that finishes while it is already open is cleared on the next report', () => {
+  const st = new SessionStore();
+  st.syncRegistry([registryEntry('s1', HOST, { status: 'busy' })]);
+  st.markViewing(HOST);
+  st.markViewing(HOST);
+  st.applyHook({ ...hook('Stop'), session_id: 's1' });
+  assert.equal(st.snapshot().sessions[0].state, 'done');
+  assert.ok(st.markViewing(HOST));
+  assert.equal(st.snapshot().sessions[0].state, 'idle');
+});

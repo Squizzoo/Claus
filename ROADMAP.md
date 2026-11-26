@@ -46,7 +46,9 @@ Small changes with a big payoff now that the chat list is getting long.
       is hidden or on another monitor.
 - [ ] **Escalation.** Repeat the chime after N minutes, flash the taskbar, or move
       the pet to the screen edge nearest the cursor.
-- [ ] **Focus awareness.** Don't notify for a chat you are already looking at.
+- [ ] **Focus awareness.** Don't notify for a chat you are already looking at. (Partly done: a
+      finished chat you open in Claude Desktop is cleared after ~2 s, but the chime for a chat
+      that finishes while open still plays.)
 - [ ] **Auto-hide.** Hide the pet when nothing is open; optionally peek in from the
       screen edge only when a chat needs you.
 - [ ] **Snooze.** Silence everything for 15 or 60 minutes from the tray.
