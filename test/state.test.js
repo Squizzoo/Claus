@@ -394,3 +394,130 @@ test('clearing, undoing and opening a finished chat are not finishes', () => {
   st.markViewing(null);
   assert.deepEqual(st.takeFinished(), []);
 });
+
+test('a turn is timed from the prompt, across approvals, and ends with the turn', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  const start = c.t;
+  c.advance(60_000);
+  st.applyHook(hook('PermissionRequest', { tool_name: 'Bash' }));
+  c.advance(30_000);
+  st.applyHook(hook('PostToolUse', { tool_name: 'Bash' }));
+  assert.equal(st.snapshot().sessions[0].turnStart, start); // the approval did not restart it
+  c.advance(10_000);
+  st.applyHook(hook('Stop'));
+  assert.equal(st.snapshot().sessions[0].turnStart, 0);
+  c.advance(5_000);
+  st.applyHook(hook('UserPromptSubmit'));
+  assert.equal(st.snapshot().sessions[0].turnStart, c.t); // a new turn starts fresh
+});
+
+test('lastActive follows hooks and the registry, and a hook that changes nothing is reported as activity', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  assert.equal(st.applyHook(hook('UserPromptSubmit')), true);
+  assert.equal(st.takeActivity(), false);
+  c.advance(4_000);
+  assert.equal(st.applyHook(hook('PostToolUse', { tool_name: 'Read' })), false); // still working
+  assert.equal(st.snapshot().sessions[0].lastActive, c.t);
+  assert.equal(st.takeActivity(), true);
+  assert.equal(st.takeActivity(), false); // reported once
+  c.advance(4_000);
+  st.syncRegistry([{ sessionId: SID, cwd: 'C:\\x\\proj', status: 'busy', statusUpdatedAt: c.t }]);
+  assert.equal(st.takeActivity(), true);
+  assert.equal(st.snapshot().sessions[0].lastActive, c.t);
+  st.syncRegistry([{ sessionId: SID, cwd: 'C:\\x\\proj', status: 'busy', statusUpdatedAt: c.t }]);
+  assert.equal(st.takeActivity(), false); // the same timestamp again is not activity
+});
+
+test('token totals ride along in the snapshot and only report real changes', () => {
+  const st = new SessionStore();
+  st.applyHook(hook('UserPromptSubmit'));
+  assert.equal(st.snapshot().sessions[0].tokens, null);
+  const u = { input: 4, output: 10, cacheWrite: 6, cacheRead: 900 };
+  assert.equal(st.setUsage(SID, u), true);
+  assert.equal(st.setUsage(SID, { ...u }), false);
+  assert.equal(st.snapshot().sessions[0].tokens, 20);
+  assert.deepEqual(st.snapshot().sessions[0].usage, u);
+  assert.equal(st.setUsage('unknown-chat', u), false);
+  assert.deepEqual([...st.ids()], [SID]);
+});
+
+test('waits on you and work are timed for the daily summary', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  c.advance(60_000); // working
+  st.applyHook(hook('PermissionRequest', { tool_name: 'Bash' }));
+  c.advance(30_000); // waiting on you
+  st.applyHook(hook('PostToolUse', { tool_name: 'Bash' }));
+  c.advance(10_000); // working again
+  st.applyHook(hook('Stop'));
+  assert.deepEqual(st.takeTimes(), { waits: [30_000], work: [70_000] });
+  assert.deepEqual(st.takeTimes(), { waits: [], work: [] }); // taken once
+});
+
+test('a wait that never ends in a resume is not recorded, and muted chats never count as waiting', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  st.applyHook(hook('PreToolUse', { tool_name: 'AskUserQuestion' }));
+  c.advance(60 * 60_000);
+  st.applyHook(hook('Stop')); // the question was cancelled and the chat finished
+  const ended = st.takeTimes();
+  assert.deepEqual(ended.waits, []);
+  assert.deepEqual(ended.work, [0]); // the abandoned hour is not counted as work either
+
+  st.setMuted({ ids: [SID] });
+  st.applyHook(hook('UserPromptSubmit'));
+  st.applyHook(hook('PermissionRequest', { tool_name: 'Bash' }));
+  c.advance(20_000);
+  st.applyHook(hook('PostToolUse', { tool_name: 'Bash' }));
+  assert.deepEqual(st.takeTimes().waits, []); // muted: not counted as waiting
+  c.advance(5_000);
+  st.applyHook(hook('Stop'));
+  assert.deepEqual(st.takeTimes().work, [5_000]); // but the wait is still taken off the work
+});
+
+test('dismissing a finished chat does not count as work', () => {
+  const st = new SessionStore();
+  st.applyHook(hook('UserPromptSubmit'));
+  st.applyHook(hook('Stop'));
+  st.takeTimes();
+  st.dismissRow(SID);
+  assert.deepEqual(st.takeTimes(), { waits: [], work: [] });
+});
+
+test('a chat outside Claude Desktop can be focused through its process; Desktop chats are opened, WSL ones are not focusable', () => {
+  const st = new SessionStore();
+  const A = 'aaaaaaaa-0000-0000-0000-000000000001';
+  const B = 'bbbbbbbb-0000-0000-0000-000000000002';
+  const C = 'cccccccc-0000-0000-0000-000000000003';
+  const D = 'dddddddd-0000-0000-0000-000000000004';
+  st.syncRegistry([
+    { sessionId: A, name: 'terminal', cwd: 'C:\\term', status: 'idle', pid: 4321, pidDomain: 'win32:laptop', entrypoint: 'cli' },
+    { sessionId: B, name: 'desktop', cwd: 'C:\\desk', status: 'idle', pid: 99, pidDomain: 'win32:laptop', hostSessionId: 'local_abc-123' },
+    { sessionId: C, name: 'wsl', cwd: '/home/x', status: 'idle', pid: 55, pidDomain: 'wsl:Ubuntu' },
+    { sessionId: D, name: 'no pid', cwd: 'C:\\nopid', status: 'idle' },
+  ]);
+  const by = Object.fromEntries(st.snapshot().sessions.map((s) => [s.name, s]));
+  assert.deepEqual([by.terminal.jumpable, by.terminal.terminal], [true, true]);
+  assert.deepEqual([by.desktop.jumpable, by.desktop.terminal], [true, false]);
+  assert.deepEqual([by.wsl.jumpable, by.wsl.terminal], [false, false]);
+  assert.deepEqual([by['no pid'].jumpable, by['no pid'].terminal], [false, false]);
+  assert.deepEqual(st.infoOf(A), { sessionId: A, cwd: 'C:\\term', hostSessionId: null, pid: 4321, focusable: true, entrypoint: 'cli' });
+  assert.equal(st.infoOf('nope'), null);
+});
+
+test('a question that turns into an approval is one wait', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  st.applyHook(hook('PreToolUse', { tool_name: 'AskUserQuestion' }));
+  c.advance(20_000);
+  st.applyHook(hook('PermissionRequest', { tool_name: 'Bash' }));
+  c.advance(10_000);
+  st.applyHook(hook('PostToolUse', { tool_name: 'Bash' }));
+  assert.deepEqual(st.takeTimes().waits, [30_000]);
+});

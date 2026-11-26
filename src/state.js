@@ -8,6 +8,8 @@
 //   question  Claude asked you something (AskUserQuestion / elicitation)
 //   approval  Claude needs a permission approval
 
+const { badgeTokens } = require('./usage');
+
 const PRIORITY = { idle: 0, working: 1, done: 2, question: 3, approval: 4 };
 const ATTENTION = new Set(['done', 'question', 'approval']);
 const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -85,6 +87,8 @@ class SessionStore {
     this.mutedProjects = new Set();
     this.lastClear = null; // {at, items} of the last x / bulk clear, for undo
     this.viewing = null; // {hostId, reports}: the chat open in the foreground Claude window
+    this.times = { waits: [], work: [] }; // pending lengths in ms: waits on you that ended in a resume, and finished stretches of work
+    this.activity = false; // something moved "last active" without changing any state (a tool ran, the registry ticked)
   }
 
   /** Muted chats and projects never alert, never get angry and do not count as waiting. */
@@ -147,9 +151,14 @@ class SessionStore {
         cwd: '',
         state: 'idle',
         since: this.now(),
+        turnStart: 0, // when the current turn began (kept across questions and approvals); 0 while idle or done
+        turnWaitMs: 0, // how much of this turn was spent waiting on you
+        pendingWaitMs: 0, // the wait in progress, kept across a question that becomes an approval
         lastHookAt: 0,
         hostSessionId: null,
         entrypoint: null,
+        pid: 0,
+        pidDomain: '',
         inRegistry: false,
         registryStatus: null,
         registryStatusAt: 0,
@@ -161,7 +170,29 @@ class SessionStore {
 
   _set(s, state) {
     if (s.state === state) return false;
+    const before = s.state;
+    const now = this.now();
+    // A wait only counts when the chat then ran again: a cancelled question that is left alone says nothing about you.
+    // Either way the time spent waiting is not time Claude spent working.
+    // A question that turns into an approval is one wait, so the pieces are added up until the chat runs again.
+    if (WAITING_ON_YOU.has(before)) {
+      s.turnWaitMs += now - s.since;
+      s.pendingWaitMs += now - s.since;
+    }
+    if (state === 'working' && s.pendingWaitMs > 0 && !this._isMuted(s)) this.times.waits.push(s.pendingWaitMs);
+    if (!WAITING_ON_YOU.has(state)) s.pendingWaitMs = 0;
+    // A turn ends when the chat finishes or goes idle: the time it spent working is the turn minus what it waited on you.
+    if (s.turnStart && (state === 'idle' || state === 'done')) {
+      this.times.work.push(Math.max(0, now - s.turnStart - s.turnWaitMs));
+    }
     s.state = state;
+    if (state === 'working' && (before === 'idle' || before === 'done' || !s.turnStart)) {
+      s.turnStart = now;
+      s.turnWaitMs = 0;
+    } else if (state === 'idle' || state === 'done') {
+      s.turnStart = 0;
+      s.turnWaitMs = 0;
+    }
     s.since = this.now();
     s.lateNotified = false;
     s.remindedAt = 0;
@@ -183,7 +214,37 @@ class SessionStore {
     s.lastHookAt = this.now();
     if (payload.cwd && !s.cwd) s.cwd = String(payload.cwd);
     if (!s.name) s.name = basename(s.cwd);
-    return this._set(s, next) || !existing;
+    const changed = this._set(s, next) || !existing;
+    if (!changed) this.activity = true;
+    return changed;
+  }
+
+  /** Token totals read from a chat's transcript ({input, output, cacheWrite, cacheRead}, or null). True when they changed. */
+  setUsage(id, usage) {
+    const s = this.sessions.get(id);
+    if (!s) return false;
+    const same = JSON.stringify(s.usage || null) === JSON.stringify(usage || null);
+    if (same) return false;
+    s.usage = usage || null;
+    return true;
+  }
+
+  ids() {
+    return new Set(this.sessions.keys());
+  }
+
+  /** The lengths (ms) of waits on you and of work that ended since the last call: {waits, work}. */
+  takeTimes() {
+    const t = this.times;
+    this.times = { waits: [], work: [] };
+    return t;
+  }
+
+  /** True once after a hook or registry update that only moved "last active": the UI may refresh, but need not rush. */
+  takeActivity() {
+    const a = this.activity;
+    this.activity = false;
+    return a;
   }
 
   /** Merges the session registry (~/.claude/sessions/*.json). Returns true when anything changed. */
@@ -204,8 +265,11 @@ class SessionStore {
       if (e.cwd && s.cwd !== e.cwd) { s.cwd = e.cwd; changed = true; }
       if (s.hostSessionId !== (e.hostSessionId || null)) { s.hostSessionId = e.hostSessionId || null; changed = true; }
       s.entrypoint = e.entrypoint || null;
+      s.pid = Number.isInteger(e.pid) && e.pid > 0 ? e.pid : 0;
+      s.pidDomain = typeof e.pidDomain === 'string' ? e.pidDomain : '';
       s.inRegistry = true;
       s.registryStatus = e.status || null;
+      if ((e.statusUpdatedAt || 0) > s.registryStatusAt) this.activity = true;
       s.registryStatusAt = e.statusUpdatedAt || 0;
 
       // Reconcile with what the registry says. Attention states are only
@@ -386,11 +450,31 @@ class SessionStore {
         project: projectKey(s.cwd),
         state: s.state,
         since: s.since,
+        turnStart: s.turnStart,
+        usage: s.usage || null,
+        tokens: s.usage ? badgeTokens(s.usage) : null,
+        lastActive: Math.max(s.since, s.lastHookAt, s.registryStatusAt),
         overdue: this._isOverdue(s),
         muted: this._isMuted(s),
-        jumpable: Boolean(s.hostSessionId),
+        jumpable: Boolean(s.hostSessionId) || this._focusable(s), // clicking the row opens the chat, or raises the window it runs in
+        terminal: !s.hostSessionId && this._focusable(s),
       })),
     };
+  }
+
+  /**
+   * A chat outside Claude Desktop (a terminal, VS Code) can still be brought forward through the window of the process it runs in.
+   * Only for chats whose process lives on this Windows machine (not WSL, whose pids are another machine's).
+   */
+  _focusable(s) {
+    return !s.hostSessionId && s.pid > 0 && (!s.pidDomain || s.pidDomain.startsWith('win32'));
+  }
+
+  /** What the main process needs to act on a chat (open it, focus it, copy its id, open its folder); kept out of the UI snapshot. */
+  infoOf(id) {
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    return { sessionId: s.id, cwd: s.cwd, hostSessionId: s.hostSessionId, pid: s.pid, focusable: this._focusable(s), entrypoint: s.entrypoint };
   }
 
   /** Registry data needed to open a chat; kept out of the UI snapshot. */

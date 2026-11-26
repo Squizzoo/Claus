@@ -41,6 +41,24 @@
   }
   tabButtons.forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
+  // ---------- today's numbers ----------
+  /** A length of time for the Today tab: `-` for none, `40s`, `6m`, `1h 05m`. */
+  function lengthText(ms) {
+    const s = Math.round((ms || 0) / 1000);
+    if (s <= 0) return '-';
+    if (s < 60) return `${s}s`;
+    const m = Math.round(s / 60);
+    return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+  }
+  function renderToday(d) {
+    if (!d) return;
+    $('st-finished').textContent = String(d.finished);
+    $('st-waits').textContent = String(d.waits);
+    $('st-wait-total').textContent = lengthText(d.waitMs);
+    $('st-wait-longest').textContent = lengthText(d.longestMs);
+    $('st-work').textContent = lengthText(d.workMs);
+  }
+
   // ---------- one-time construction ----------
   const gallery = $('gallery');
   const cards = PetArt.ORDER.map((id) => {
@@ -152,6 +170,7 @@
 
   $('muted').addEventListener('change', (e) => window.pet.setBehaviour({ muted: e.target.checked }));
   $('streak').addEventListener('change', (e) => pick({ streak: e.target.checked }));
+  $('show-tokens').addEventListener('change', (e) => pick({ showTokens: e.target.checked }));
 
   // ---------- sending changes ----------
   /** Shows the change at once and asks the main process to apply it (it answers with the real state). */
@@ -209,6 +228,8 @@
     if (st.patience && patienceButtons.length !== st.patience.length) patienceButtons = segmented($('patience'), st.patience.map((p) => [p.min, p.label]), (min) => window.pet.setBehaviour({ impatientMin: min }));
     setChecked(patienceButtons, (b) => b.dataset.value === String(st.impatientMin));
     $('streak').checked = look.streak;
+    $('show-tokens').checked = look.showTokens;
+    renderToday(st.daily);
 
     const nt = st.notify;
     const ch = st.notifyChoices;

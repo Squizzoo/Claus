@@ -52,6 +52,9 @@ test('sound settings are validated', () => {
   assert.equal(sanitize({ quiet: '24h' }).quiet, 'off');
   assert.equal(sanitize({ streak: false }).streak, false);
   assert.equal(sanitize({ streak: 'no' }).streak, true);
+  assert.equal(sanitize({}).showTokens, true);
+  assert.equal(sanitize({ showTokens: false }).showTokens, false);
+  assert.equal(sanitize({ showTokens: 'off' }).showTokens, true);
 });
 
 test('quiet hours that run past midnight', () => {

@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('pet', {
   dragEnd: () => ipcRenderer.send('drag-end'),
   jump: (id) => ipcRenderer.send('jump', id),
   dismiss: (id) => ipcRenderer.send('dismiss', id),
+  rowMenu: (id) => ipcRenderer.send('row-menu', id),
   clearFinished: () => ipcRenderer.send('clear-finished'),
   clearIdle: () => ipcRenderer.send('clear-idle'),
   undo: () => ipcRenderer.send('undo'),

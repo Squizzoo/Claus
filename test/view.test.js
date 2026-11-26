@@ -124,3 +124,20 @@ test('the real snapshot feeds the view', () => {
   assert.equal(v.groups, 1); // both paths are the same project
   assert.deepEqual(ids(v), ['s2', 's1']);
 });
+
+test('formatDuration and formatAgo write times to the second', () => {
+  const { formatDuration, formatAgo } = PetView;
+  assert.equal(formatDuration(0), '0s');
+  assert.equal(formatDuration(42_900), '42s');
+  assert.equal(formatDuration(252_000), '4m 12s');
+  assert.equal(formatDuration(303_000), '5m 03s');
+  assert.equal(formatDuration(3_900_000), '1h 05m');
+  assert.equal(formatDuration(-5), '0s');
+  assert.equal(formatAgo(2_000), 'just now');
+  assert.equal(formatAgo(8_000), '8s ago');
+});
+
+test('formatTokens keeps the badge short', () => {
+  const { formatTokens } = PetView;
+  assert.deepEqual([0, 812, 1000, 4200, 9999, 48_300, 999_999, 1_200_000, 12_000_000].map(formatTokens), ['0', '812', '1k', '4.2k', '10k', '48k', '1M', '1.2M', '12M']);
+});

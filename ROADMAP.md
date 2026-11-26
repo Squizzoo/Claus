@@ -53,16 +53,18 @@ Small changes with a big payoff now that the chat list is getting long.
 - [x] **Auto-hide.** Hide the pet when nothing is open, or peek in from the screen edge only when a chat needs you.
 - [x] **Snooze.** Silence sound, toasts and reminders for 15 or 60 minutes, from the tray or the settings window.
 
-## Phase 4: More information per chat
+## Phase 4: More information per chat **[done]**
 
-- [ ] **Durations.** "Working for 4m 12s", time since last activity.
-- [ ] **Token or cost badge per chat**, if the hooks expose the data.
-- [ ] **Daily summary.** Chats finished today, total waiting time, longest wait.
-      Local only.
-- [ ] **Row quick actions** (right-click): Open in Claude, copy session id, open
-      project folder, open in terminal or VS Code.
-- [ ] **Terminal chats.** Focus the terminal window as a fallback, since these
-      cannot be opened through `claude://` today.
+- [x] **Durations.** `working for 4m 12s · active 8s ago` on a working row, counting in place; a turn is timed from
+      the prompt and keeps running across approvals.
+- [x] **Token badge per chat.** The hooks carry no token data, so the counters are read from the chat's transcript file
+      (only the id and four counters of each message are kept, deduplicated by message id). Tokens, no cost estimate: a price table goes stale.
+- [x] **Daily summary.** Chats finished, waits on you, total and longest wait, work time. A *Today* tab, the tray and the
+      header tooltip. Local only, numbers only. Waits longer than 4 hours are skipped (abandoned chats).
+- [x] **Row quick actions** (right-click): open in Claude, copy session id, open the project folder, in VS Code or in a
+      terminal, pin, mute.
+- [x] **Terminal chats.** A row click raises the window the chat's process runs in (terminal or VS Code). The whole
+      window, not the tab; a default-terminal hand-off has no such window.
 
 ## Phase 5: Behaviour and platform
 
@@ -91,7 +93,8 @@ Small changes with a big payoff now that the chat list is getting long.
 1. ~~Phase 1: x check, search, project grouping~~ (done, with the rest of the phase).
 2. ~~Phase 2: pet-picker abstraction and the rest of pet personality~~ (done).
 3. ~~Phase 3: toasts and snooze~~ (done, with the rest of the phase).
-4. Phase 5: settings panel, once there are enough options to need one.
-5. Packaging, when the feature set feels right.
+4. ~~Phase 4: durations, tokens, daily summary, quick actions, terminal focus~~ (done).
+5. Phase 5: settings panel, once there are enough options to need one.
+6. Packaging, when the feature set feels right.
 
 Each phase fits on its own branch.
