@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claus settings</title>
+  <link rel="stylesheet" href="pet.css">
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <header id="top">
+    <h1>Claus</h1>
+    <nav id="tabs" role="tablist" aria-label="Settings">
+      <button type="button" role="tab" id="tab-btn-look" data-tab="look" aria-selected="true" aria-controls="tab-look">Appearance</button>
+      <button type="button" role="tab" id="tab-btn-sound" data-tab="sound" aria-selected="false" aria-controls="tab-sound">Sound</button>
+      <button type="button" role="tab" id="tab-btn-behaviour" data-tab="behaviour" aria-selected="false" aria-controls="tab-behaviour">Behaviour</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ===== Appearance: pick a pet on the left, shape it on the right ===== -->
+    <section id="tab-look" class="tab" role="tabpanel" aria-labelledby="tab-btn-look">
+      <div class="col-gallery">
+        <h2>Pet <span id="pet-count" class="dim"></span></h2>
+        <div id="gallery" role="radiogroup" aria-label="Pet"></div>
+      </div>
+      <aside class="col-studio">
+        <div id="stage" class="pet-host mood-idle" aria-label="Live preview"></div>
+        <p id="stage-name">&nbsp;</p>
+        <div id="moods" class="chips" role="group" aria-label="Show the pet as"></div>
+
+        <h2>Colour</h2>
+        <div id="skins" class="swatches" role="radiogroup" aria-label="Colour"></div>
+        <h2>Accessory</h2>
+        <div id="accessories" class="tiles" role="radiogroup" aria-label="Accessory"></div>
+        <h2>Mustache</h2>
+        <div id="mustaches" class="tiles" role="radiogroup" aria-label="Mustache"></div>
+      </aside>
+    </section>
+
+    <!-- ===== Sound ===== -->
+    <section id="tab-sound" class="tab" role="tabpanel" aria-labelledby="tab-btn-sound" hidden>
+      <div class="col-form">
+        <p id="sound-note" class="note" hidden></p>
+        <h2>Sound pack</h2>
+        <p class="hint">Pick a pack, and press ✓ ? ! to hear what a finished chat, a question and an approval sound like.</p>
+        <div id="packs"></div>
+
+        <h2>Volume</h2>
+        <div id="volume" class="seg" role="radiogroup" aria-label="Volume"></div>
+
+        <h2>Quiet hours</h2>
+        <p class="hint">No sound between these hours. The pet still moves and shows its chips.</p>
+        <div id="quiet" class="seg" role="radiogroup" aria-label="Quiet hours"></div>
+
+        <h2>Mute</h2>
+        <label class="switch"><input type="checkbox" id="muted"><span class="track"></span><span class="label">Mute all sounds</span></label>
+      </div>
+    </section>
+
+    <!-- ===== Behaviour ===== -->
+    <section id="tab-behaviour" class="tab" role="tabpanel" aria-labelledby="tab-btn-behaviour" hidden>
+      <div class="col-form">
+        <h2>Gets angry after waiting</h2>
+        <p class="hint">When a chat has been waiting on a question or an approval for this long, the pet turns angry.</p>
+        <div id="patience" class="seg" role="radiogroup" aria-label="Gets angry after waiting"></div>
+
+        <h2>Chats finished today</h2>
+        <p class="hint">A small counter in the header of the chat list. Only the date and the number are saved.</p>
+        <label class="switch"><input type="checkbox" id="streak"><span class="track"></span><span class="label">Show <b id="today">0</b> finished today</span></label>
+      </div>
+    </section>
+  </main>
+
+  <script src="pets.js"></script>
+  <script src="sounds.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>

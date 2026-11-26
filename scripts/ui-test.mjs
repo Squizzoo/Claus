@@ -9,6 +9,8 @@
 //   node scripts/ui-test.mjs act <pin|mute|x> [row]   hover a row and click that button
 //   node scripts/ui-test.mjs click <selector> [n]     click an element; hover <selector> [n] hovers it
 //   node scripts/ui-test.mjs chain <selector>...      click several elements in one run (e.g. '#opts-toggle' then an option)
+//   node scripts/ui-test.mjs dblclick                 double-click the pet: the settings window must open and the list close
+//   node scripts/ui-test.mjs settings <selector>...   click things in the settings window ('[data-pet=dog]', '#tab-btn-sound'...), print what it shows
 // The panel closes when the window loses focus, so commands that click or type open it first.
 //
 // Output is plain facts (mutation counts, rows, nojump rows) so a human can read it.
@@ -18,7 +20,7 @@ const [cmd = 'open', arg = '0'] = process.argv.slice(2);
 const pages = await (await fetch(`http://127.0.0.1:${PORT}/json`)).json();
 // The pet and its chat list are two windows showing the same page, told apart by ?role=pet|panel.
 const connect = async (role) => {
-  const page = pages.find((p) => p.type === 'page' && p.url.includes('index.html') && p.url.includes(`role=${role}`));
+  const page = pages.find((p) => p.type === 'page' && (role === 'settings' ? p.url.includes('settings.html') : p.url.includes('index.html') && p.url.includes(`role=${role}`)));
   if (!page) throw new Error(`${role} page not found; is the pet running with --remote-debugging-port?`);
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((r, j) => { ws.onopen = r; ws.onerror = j; });
@@ -158,6 +160,40 @@ if (cmd === 'open') {
   await click(c.x, c.y);
   await sleep(1500);
   console.log('after the click:', JSON.stringify(await facts()));
+}
+else if (cmd === 'dblclick') {
+  const c = await petPage.evaluate(`(() => { const r = document.getElementById('pet').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+  const tap = async (clickCount) => {
+    const base = { x: c.x, y: c.y, button: 'left', clickCount };
+    await petPage.send('Input.dispatchMouseEvent', { type: 'mousePressed', buttons: 1, ...base });
+    await sleep(40);
+    await petPage.send('Input.dispatchMouseEvent', { type: 'mouseReleased', buttons: 0, ...base });
+  };
+  await petPage.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: c.x, y: c.y });
+  await tap(1);
+  await sleep(120);
+  await tap(2);
+  await sleep(1200);
+  const now = await (await fetch(`http://127.0.0.1:${PORT}/json`)).json();
+  console.log('settings window open:', now.some((p) => p.url.includes('settings.html')), '| list open:', JSON.stringify(await facts()));
+} else if (cmd === 'settings') {
+  const set = await connect('settings');
+  for (const sel of process.argv.slice(3)) {
+    const r = await set.evaluate(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; const q = e.getBoundingClientRect(); return { x: q.x + q.width / 2, y: q.y + q.height / 2, w: q.width }; })()`);
+    if (!r || !r.w) throw new Error(`${sel} is not visible in the settings window`);
+    await click(r.x, r.y, set);
+    await sleep(500);
+  }
+  console.log(JSON.stringify(await set.evaluate(`(() => {
+    const on = (sel, attr = 'aria-checked') => [...document.querySelectorAll(sel)].filter((e) => e.getAttribute(attr) === 'true').map((e) => e.title || e.dataset.pet || e.dataset.pack || e.dataset.value || e.textContent.trim());
+    return {
+      tab: on('#tabs [role=tab]', 'aria-selected'), pet: on('.card'), skin: on('.swatch'), accessory: on('#accessories .tile'), mustache: on('#mustaches .tile'),
+      pack: on('.pack').map((_, i) => document.querySelector('.pack[aria-checked=true]').dataset.pack), volume: on('#volume button'), quiet: on('#quiet button'), patience: on('#patience button'),
+      muted: document.getElementById('muted').checked, streak: document.getElementById('streak').checked, mood: on('#moods button', 'aria-pressed'), stage: document.getElementById('stage').className,
+    };
+  })()`)));
+  console.log('pet window root:', await petPage.evaluate(`document.getElementById('root').className + ' | fur=' + document.getElementById('root').style.getPropertyValue('--fur') + ' | stache=' + !!document.querySelector('#tilt .stache') + ' | accessory=' + !!document.querySelector('#tilt .accessory')`));
+  set.ws.close();
 }
 petPage.ws.close();
 panelPage.ws.close();

@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { DEFAULTS, sanitize, merge, choices } = require('../src/look');
+const { DEFAULTS, sanitize, merge, choices, sanitizeBehaviour } = require('../src/look');
 const PetArt = require('../src/renderer/pets');
 
 test('defaults are valid', () => {
@@ -74,4 +74,21 @@ test('quiet hours off, or an unknown preset, are never quiet', () => {
     assert.equal(isQuiet(new Date(2026, 5, 1, h), 'off'), false);
     assert.equal(isQuiet(new Date(2026, 5, 1, h), 'nope'), false);
   }
+});
+
+test('mustache is validated like the other choices and defaults to none', () => {
+  assert.equal(DEFAULTS.mustache, 'none');
+  for (const id of PetArt.MUSTACHE_ORDER) assert.equal(sanitize({ mustache: id }).mustache, id);
+  assert.equal(sanitize({ mustache: 'beard' }).mustache, 'none');
+  assert.equal(sanitize({ pet: 'dog' }).mustache, 'none'); // a settings file from before the mustache existed
+  assert.equal(merge(sanitize({ mustache: 'curly' }), { mustache: 'nope' }).mustache, 'curly');
+});
+
+test('behaviour: only mute and a known patience get through', () => {
+  const cur = { muted: false, impatientMin: 2 };
+  assert.deepEqual(sanitizeBehaviour({ muted: true }, cur), { muted: true, impatientMin: 2 });
+  assert.deepEqual(sanitizeBehaviour({ impatientMin: 0 }, cur), { muted: false, impatientMin: 0 });
+  assert.deepEqual(sanitizeBehaviour({ impatientMin: 7, muted: 'yes', evil: 1 }, cur), cur);
+  assert.deepEqual(sanitizeBehaviour(null, cur), cur);
+  assert.deepEqual(sanitizeBehaviour({ impatientMin: 10 }), { muted: false, impatientMin: 10 });
 });

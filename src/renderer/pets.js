@@ -50,7 +50,7 @@
       + '</g>';
     if (face.nose) {
       const n = face.nose;
-      out += `<path id="nose" d="M${f(cx - n.w)} ${f(n.y)} L${f(cx + n.w)} ${f(n.y)} L${f(cx)} ${f(n.y + n.h)} Z"/>`;
+      out += `<path class="nose" d="M${f(cx - n.w)} ${f(n.y)} L${f(cx + n.w)} ${f(n.y)} L${f(cx)} ${f(n.y + n.h)} Z"/>`;
     }
     out += mouth('calm', 7, my, my + 6) + mouth('happy', 9, my - 1, my + 12) + mouth('worried', 7, my + 3, my - 3) + mouth('angry', 9, my + 6, my - 4);
     return out;
@@ -118,10 +118,26 @@
   };
   const ACCESSORY_ORDER = ['none', 'bow', 'hat', 'crown', 'party'];
 
+  // A mustache is its own slot (it goes with any accessory). Drawn around (0, 0) = the middle of the upper lip,
+  // about 34 wide for a pet whose eyes are 36 apart; buildPet scales and places it from the pet's face measurements.
+  // Each shape is one half (the left one), drawn twice, the second time mirrored.
+  const mirrored = (half, extra = '') => `<g class="stache"><path d="${half}"/><path d="${half}" transform="scale(-1 1)"/>${extra}</g>`;
+  const MUSTACHES = {
+    none: { label: 'None' },
+    classic: { label: 'Classic', art: mirrored('M0 -3.5 C-4 -7 -11 -7.5 -16 -3 C-18.5 -0.5 -17 3.5 -12.5 3.5 C-9 2 -4.5 2.5 0 3.5 Z') },
+    handlebar: { label: 'Handlebar', art: mirrored('M0 -2.5 C-5 -5 -11 -4.5 -16 -1.5 C-20 1 -24 0 -24.5 -4 C-24.8 -7.5 -21.5 -9 -19 -7.5 C-21 -6.5 -21 -4 -19.5 -3 C-17 -1.5 -12 0.5 -7 1.5 C-4 2.2 -2 2.8 0 2.8 Z') },
+    curly: { label: 'Curly', art: mirrored('M0 -3 C-5 -6 -12 -6 -17 -2 C-19 0 -18 3 -14.5 3 C-10 1.5 -5 2 0 3.5 Z', '<circle cx="-19.5" cy="-1.5" r="4.2"/><circle cx="19.5" cy="-1.5" r="4.2"/>') },
+  };
+  const MUSTACHE_ORDER = ['none', 'classic', 'handlebar', 'curly'];
+  const STACHE_COLOUR = '#3a2a22';
+  /** Dark on light bodies, light on dark ones; a pet whose face sits on a fixed patch says which colour shows there (stacheColour). */
+  const stacheColour = (p, skinId) => (p.stacheColour === 'light' || (p.stacheColour !== 'dark' && own(SKINS, skinId) && SKINS[skinId].dark) ? STACHE_LIGHT : STACHE_COLOUR);
+  const STACHE_LIGHT = '#e9e1d3'; // on a dark body or a dark screen
+
   // ---------- the pets ----------
   // Layers, back to front: tail, back (ears, wings), body, front (feet, belly, muzzle), face.
   // `tail` is the part that wags (a tail, an antenna, a flipper, the sun's rays): {d, origin} for a plain
-  // stroke or {markup, origin} for a group, which must carry id="tail". Shapes that should follow the pet's
+  // stroke or {markup, origin} for a group, which must carry class="tail". Shapes that should follow the pet's
   // colour use the classes fur (the body colour), dark (a darker shade), inner (belly, muzzle) and beak (the nose colour).
   // anchors.vein: the centre of the anger mark; anchors.top: the top of the head, for accessories.
   const sunRays = Array.from({ length: 12 }, (_, i) => `<path class="fur" stroke="none" d="M75 31 L64 55 L86 55 Z" transform="rotate(${i * 30} 75 88)"/>`).join('');
@@ -155,7 +171,7 @@
     bunny: {
       label: 'Bunny',
       colors: { body: '#f1e7ea', ink: '#4a3b44', inner: '#f6b5c5', blush: '#f6a5b8', nose: '#ef8fa6' },
-      tail: { markup: '<g id="tail"><circle class="fur" cx="117" cy="122" r="11" stroke="none"/></g>', origin: '117px 122px' },
+      tail: { markup: '<g class="tail"><circle class="fur" cx="117" cy="122" r="11" stroke="none"/></g>', origin: '117px 122px' },
       back: '<ellipse class="ear fur" cx="55" cy="38" rx="11" ry="30" transform="rotate(-6 55 38)"/><ellipse class="ear fur" cx="95" cy="38" rx="11" ry="30" transform="rotate(6 95 38)"/>'
         + '<ellipse class="inner" cx="55" cy="40" rx="5.5" ry="21" transform="rotate(-6 55 40)"/><ellipse class="inner" cx="95" cy="40" rx="5.5" ry="21" transform="rotate(6 95 40)"/>',
       body: '<ellipse id="body" class="fur" cx="75" cy="97" rx="45" ry="39"/>',
@@ -180,7 +196,8 @@
       label: 'Penguin',
       colors: { body: '#3f5272', ink: '#1f2733', inner: '#f6f8fc', blush: '#f4a6a0', nose: '#f5a623' },
       faceOnBody: false, // the eyes sit on a white patch
-      tail: { markup: '<g id="tail"><ellipse class="dark" cx="121" cy="100" rx="9" ry="24" transform="rotate(-14 121 100)" stroke="none"/></g>', origin: '118px 80px' },
+      stacheColour: 'dark', // the white belly patch stays white in every colour
+      tail: { markup: '<g class="tail"><ellipse class="dark" cx="121" cy="100" rx="9" ry="24" transform="rotate(-14 121 100)" stroke="none"/></g>', origin: '118px 80px' },
       back: '<ellipse class="dark" cx="29" cy="100" rx="9" ry="24" transform="rotate(14 29 100)"/>',
       body: '<ellipse id="body" class="fur" cx="75" cy="92" rx="43" ry="46"/>',
       front: '<ellipse class="inner" cx="75" cy="92" rx="33" ry="23"/><ellipse class="inner" cx="75" cy="112" rx="29" ry="25"/>'
@@ -192,7 +209,7 @@
       label: 'Owl',
       colors: { body: '#b98a5e', ink: '#2e2118', inner: '#f7edd9', blush: '#e7a38a', nose: '#f5a623' },
       faceOnBody: false, // the eyes sit on cream discs
-      tail: { markup: '<g id="tail"><ellipse class="dark" cx="121" cy="102" rx="10" ry="24" transform="rotate(-14 121 102)" stroke="none"/></g>', origin: '118px 82px' },
+      tail: { markup: '<g class="tail"><ellipse class="dark" cx="121" cy="102" rx="10" ry="24" transform="rotate(-14 121 102)" stroke="none"/></g>', origin: '118px 82px' },
       back: '<path class="fur" d="M40 64 L36 32 L63 52 Z"/><path class="fur" d="M110 64 L114 32 L87 52 Z"/><ellipse class="dark" cx="29" cy="102" rx="10" ry="24" transform="rotate(14 29 102)"/>',
       body: '<ellipse id="body" class="fur" cx="75" cy="94" rx="45" ry="43"/>',
       front: '<circle class="inner" cx="57" cy="84" r="19"/><circle class="inner" cx="93" cy="84" r="19"/>'
@@ -204,7 +221,7 @@
       label: 'Dragon',
       colors: { body: '#72cf7c', ink: '#23402a', inner: '#f0f7c9', blush: '#f4a68c', nose: '#2f7a42' },
       mouthOnInner: true,
-      tail: { markup: '<g id="tail"><path d="M112 118 C140 120 146 98 132 88"/><path class="dark" d="M126 90 L141 83 L135 99 Z" stroke="none"/></g>', origin: '112px 118px' },
+      tail: { markup: '<g class="tail"><path d="M112 118 C140 120 146 98 132 88"/><path class="dark" d="M126 90 L141 83 L135 99 Z" stroke="none"/></g>', origin: '112px 118px' },
       back: '<path class="dark" d="M36 86 C10 74 6 46 22 38 C24 52 34 60 46 64 Z"/><path class="dark" d="M114 86 C140 74 144 46 128 38 C126 52 116 60 104 64 Z"/>'
         + '<path class="inner" d="M52 62 L44 34 L68 52 Z"/><path class="inner" d="M98 62 L106 34 L82 52 Z"/>',
       body: '<ellipse id="body" class="fur" cx="75" cy="94" rx="46" ry="41"/>',
@@ -218,7 +235,7 @@
       label: 'Sprout',
       colors: { body: '#9482f2', ink: '#2b2550', inner: '#8fe3a8', blush: '#f6a5c0', nose: '#2b2550' },
       mouthOnInner: true,
-      tail: { markup: '<g id="tail"><path d="M112 118 C136 124 146 102 134 92"/><circle class="inner" cx="133" cy="88" r="9" stroke="none"/></g>', origin: '112px 118px' },
+      tail: { markup: '<g class="tail"><path d="M112 118 C136 124 146 102 134 92"/><circle class="inner" cx="133" cy="88" r="9" stroke="none"/></g>', origin: '112px 118px' },
       back: '<circle class="dark" cx="36" cy="66" r="14"/><circle class="dark" cx="114" cy="66" r="14"/>',
       body: '<ellipse id="body" class="fur" cx="75" cy="95" rx="46" ry="41"/>',
       front: '<path class="inner" d="M75 56 C70 40 58 36 50 41 C57 51 66 56 75 56 Z"/><path class="inner" d="M75 56 C80 40 92 36 100 41 C93 51 84 56 75 56 Z"/>'
@@ -249,7 +266,8 @@
       label: 'Robot',
       colors: { body: '#a9bdd0', ink: '#7df5c8', inner: '#27323f', blush: '#7df5c8', nose: '#e8574b' },
       faceOnBody: false, // the face is on the dark screen
-      tail: { markup: '<g id="tail"><path d="M75 56 L75 38"/><circle class="beak" cx="75" cy="33" r="6.5" stroke="none"/></g>', origin: '75px 56px' },
+      stacheColour: 'light', // a dark mustache would vanish on the dark screen
+      tail: { markup: '<g class="tail"><path d="M75 56 L75 38"/><circle class="beak" cx="75" cy="33" r="6.5" stroke="none"/></g>', origin: '75px 56px' },
       back: '<rect class="dark" x="20" y="80" width="14" height="26" rx="5"/><rect class="dark" x="116" y="80" width="14" height="26" rx="5"/>',
       body: '<rect id="body" class="fur" x="30" y="54" width="90" height="80" rx="18"/>',
       front: '<rect class="inner" x="40" y="64" width="70" height="46" rx="11"/>'
@@ -262,7 +280,7 @@
     alien: {
       label: 'Alien',
       colors: { body: '#a6e46c', ink: '#16251a', inner: '#e4fbc2', blush: '#7fd05a', nose: '#6aa83e' },
-      tail: { markup: '<g id="tail"><path d="M60 52 C56 40 50 34 46 30"/><path d="M90 52 C94 40 100 34 104 30"/><circle class="inner" cx="45" cy="27" r="6" stroke="none"/><circle class="inner" cx="105" cy="27" r="6" stroke="none"/></g>', origin: '75px 52px' },
+      tail: { markup: '<g class="tail"><path d="M60 52 C56 40 50 34 46 30"/><path d="M90 52 C94 40 100 34 104 30"/><circle class="inner" cx="45" cy="27" r="6" stroke="none"/><circle class="inner" cx="105" cy="27" r="6" stroke="none"/></g>', origin: '75px 52px' },
       back: '',
       body: '<path id="body" class="fur" d="M75 44 C108 44 126 70 120 100 C116 124 98 137 75 137 C52 137 34 124 30 100 C24 70 42 44 75 44 Z"/>',
       front: '',
@@ -288,7 +306,7 @@
     sun: {
       label: 'Sun',
       colors: { body: '#ffd23f', ink: '#5a3410', inner: '#fff0a8', blush: '#ff9a5c', flush: '#ffa05a', angry: '#ff6a3c' },
-      tail: { markup: `<g id="tail" stroke="none">${sunRays}</g>`, origin: '75px 88px' },
+      tail: { markup: `<g class="tail" stroke="none">${sunRays}</g>`, origin: '75px 88px' },
       back: '',
       body: '<circle id="body" class="fur" cx="75" cy="88" r="38"/>',
       front: '',
@@ -298,7 +316,7 @@
     moon: {
       label: 'Moon',
       colors: { body: '#f2e4a6', ink: '#4a4326', inner: '#ffffff', blush: '#f0a98c' },
-      tail: { markup: '<g id="tail"><path d="M122 60 L125 69 L134 72 L125 75 L122 84 L119 75 L110 72 L119 69 Z" fill="#ffe36e" stroke="none"/></g>', origin: '122px 72px' },
+      tail: { markup: '<g class="tail"><path d="M122 60 L125 69 L134 72 L125 75 L122 84 L119 75 L110 72 L119 69 Z" fill="#ffe36e" stroke="none"/></g>', origin: '122px 72px' },
       back: '',
       body: '<circle id="body" class="fur" cx="75" cy="92" r="43"/>',
       front: '<circle class="dark" cx="48" cy="72" r="7"/><circle class="dark" cx="104" cy="112" r="9"/><circle class="dark" cx="100" cy="70" r="4.5"/><circle class="dark" cx="52" cy="116" r="5.5"/><circle class="dark" cx="75" cy="128" r="3.5"/>',
@@ -308,7 +326,7 @@
     cloud: {
       label: 'Cloud',
       colors: { body: '#e3effa', ink: '#46566f', inner: '#ffffff', blush: '#f5a9bd' },
-      tail: { markup: '<g id="tail"><path d="M138 100 L127 118 L136 118 L128 136 L148 111 L138 111 L146 100 Z" fill="#ffd23f" stroke="none"/></g>', origin: '138px 100px' },
+      tail: { markup: '<g class="tail"><path d="M138 100 L127 118 L136 118 L128 136 L148 111 L138 111 L146 100 Z" fill="#ffd23f" stroke="none"/></g>', origin: '138px 100px' },
       back: '<circle class="fur" cx="46" cy="100" r="24"/><circle class="fur" cx="104" cy="98" r="26"/><circle class="fur" cx="60" cy="72" r="22"/><circle class="fur" cx="92" cy="70" r="20"/>',
       body: '<ellipse id="body" class="fur" cx="75" cy="94" rx="40" ry="38"/>',
       front: '<ellipse class="fur" cx="75" cy="118" rx="50" ry="16"/>',
@@ -331,16 +349,21 @@
   }
 
   /** Everything the renderer needs to draw one pet: the markup for #tilt, CSS variables for #root, anchors. */
-  function buildPet(id, skinId, accessoryId) {
+  function buildPet(id, skinId, accessoryId, mustacheId) {
     const key = own(PETS, id) ? id : DEFAULT_PET;
     const p = PETS[key];
     const c = colorsFor(p, skinId);
-    const tail = p.tail ? p.tail.markup || `<path id="tail" d="${p.tail.d}"/>` : '';
+    const tail = p.tail ? p.tail.markup || `<path class="tail" d="${p.tail.d}"/>` : '';
     const acc = own(ACCESSORIES, accessoryId) ? ACCESSORIES[accessoryId] : null;
     // a bow goes to the pet's own spot when it has one (car, robot), else beside the top of the head
     const spot = accessoryId === 'bow' && p.anchors.bow ? p.anchors.bow : acc && acc.art ? [p.anchors.top[0] + acc.at[0], p.anchors.top[1] + acc.at[1]] : null;
     const accessory = spot ? `<g class="accessory" transform="translate(${spot[0]} ${spot[1]})">${acc.art}</g>` : '';
-    const markup = tail + p.back + p.body + p.front + faceMarkup(p.face) + accessory;
+    // the mustache sits on the upper lip: under the nose, over the top of the mouth; face.stache can nudge it (dy) or resize it (s)
+    const st = p.face.stache || {};
+    const stache = own(MUSTACHES, mustacheId) && MUSTACHES[mustacheId].art
+      ? `<g transform="translate(${f(p.face.cx + (st.dx || 0))} ${f(p.face.mouthY - 3 + (st.dy || 0))}) scale(${f((st.s || 1) * 0.85 * p.face.eyeDx / 18)})">${MUSTACHES[mustacheId].art}</g>`
+      : '';
+    const markup = tail + p.back + p.body + p.front + faceMarkup(p.face) + stache + accessory;
     const vars = {
       '--fur': c.body,
       '--fur-flush': c.flush,
@@ -350,6 +373,7 @@
       '--inner': c.inner,
       '--blush': c.blush,
       '--nose': c.nose,
+      '--stache': stacheColour(p, skinId),
       '--tail-origin': p.tail ? p.tail.origin : '75px 134px',
       '--tail-w': '10',
       '--eye-origin': `${p.face.cx}px ${p.face.eyeY}px`,
@@ -380,5 +404,5 @@
     return Math.round(IDLE_GAP[0] + rand() * (IDLE_GAP[1] - IDLE_GAP[0]));
   }
 
-  return { PETS, ORDER, DEFAULT_PET, SKINS, SKIN_ORDER, ACCESSORIES, ACCESSORY_ORDER, IDLE_ACTIONS, IDLE_GAP, pickIdleAction, nextIdleDelay, REQUIRED_IDS, REQUIRED_CLASSES, buildPet, faceMarkup, mix, fillColors };
+  return { PETS, ORDER, DEFAULT_PET, SKINS, SKIN_ORDER, ACCESSORIES, ACCESSORY_ORDER, IDLE_ACTIONS, IDLE_GAP, pickIdleAction, nextIdleDelay, MUSTACHES, MUSTACHE_ORDER, REQUIRED_IDS, REQUIRED_CLASSES, buildPet, faceMarkup, mix, fillColors };
 });

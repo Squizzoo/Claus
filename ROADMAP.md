@@ -69,8 +69,9 @@ Small changes with a big payoff now that the chat list is getting long.
 
 ## Phase 5: Behaviour and platform
 
-- [ ] **Settings panel** instead of tray-only: patience, sounds, pet, size,
-      opacity.
+- [ ] **Settings window** instead of tray-only. Partly done: double-click the pet for a window with a pet
+      gallery, live preview, colour, accessory, mustache, sounds, quiet hours, patience and the
+      counter (the tray keeps working). Still open: size and opacity, once they exist.
 - [ ] **Size and opacity**, plus click-through while idle.
 - [ ] **Snap to corners or edges**, optional "stay above fullscreen apps".
 - [ ] **Multi-monitor modes:** follow the active monitor or stay put.
