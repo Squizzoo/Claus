@@ -42,7 +42,9 @@ function createOpenChatWatcher() {
         settle(parseAnswer(line));
       }
     });
+    const mine = child;
     const gone = () => {
+      if (child !== mine) return; // an old helper that was killed on purpose must not answer a newer question
       child = null;
       buffer = '';
       settle(null);

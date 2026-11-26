@@ -600,11 +600,14 @@
   // Click-through: while the window ignores the mouse it still gets the moves (forwarded); Ctrl + hover asks main to make it clickable again.
   if (ROLE === 'pet') {
     let lastGrab = 0;
+    let armed = false; // Ctrl was held over the pet: it stays grabbable until the mouse leaves, so a slow click still lands
     window.addEventListener('mousemove', (e) => {
-      if (!e.ctrlKey || Date.now() - lastGrab < 250) return;
+      if (e.ctrlKey) armed = true;
+      if (!armed || Date.now() - lastGrab < 250) return;
       lastGrab = Date.now();
       window.pet.petGrab();
     });
+    document.addEventListener('mouseleave', () => { armed = false; });
   }
 
   window.pet.onState(render);

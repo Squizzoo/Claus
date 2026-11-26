@@ -106,3 +106,16 @@ test('a missing settings file is created by install (no backup), but only when i
   assert.throws(() => H.plan({ action: 'install', file: nowhere, port: PORT }));
   fs.rmSync(dir, { recursive: true });
 });
+
+test('complete means every event has an entry of ours, however many there are', () => {
+  const { dir, file } = tmp();
+  fs.writeFileSync(file, JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'http', url: H.hookUrl(PORT) }, { type: 'http', url: H.hookUrl(PORT) }] }] } }));
+  assert.equal(H.status({ file, port: PORT }).complete, false); // one event of eight
+  H.apply(H.plan({ action: 'install', file, port: PORT }));
+  assert.equal(H.status({ file, port: PORT }).complete, true);
+  const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+  json.hooks.SessionEnd.push({ hooks: [{ type: 'http', url: H.hookUrl(PORT) }] }); // a ninth entry added by hand
+  fs.writeFileSync(file, JSON.stringify(json));
+  assert.equal(H.status({ file, port: PORT }).complete, true);
+  fs.rmSync(dir, { recursive: true });
+});

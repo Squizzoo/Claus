@@ -900,19 +900,23 @@ async function jumpTo(id) {
 let jumpHealth = jumpHealthLib.EMPTY;
 const JUMP_CHECK_TRIES = 8;
 const JUMP_CHECK_GAP_MS = 500;
+let jumpCheckSeq = 0;
 async function verifyJump(wanted, focused) {
   if (!wanted || SHOT_RUN) return;
+  const mine = ++jumpCheckSeq; // only the latest jump is checked: older ones would see the newer jump's chat and count one miss twice
   const version = await readClaudeVersion();
   let answer;
   const seen = [];
   for (let i = 0; i < JUMP_CHECK_TRIES; i++) {
     await new Promise((r) => setTimeout(r, JUMP_CHECK_GAP_MS));
+    if (mine !== jumpCheckSeq) return;
     const got = await openChat.query();
     seen.push(got === undefined ? 'busy' : got ? got.slice(0, 14) : 'none');
     if (got === undefined) continue; // the helper was busy with the one-second loop: ask again
     answer = got;
     if (got === wanted) break;
   }
+  if (mine !== jumpCheckSeq) return;
   const verdict = jumpHealthLib.outcome({ focused, openHostId: answer, wanted });
   debugLog(`jump check: ${verdict ? (verdict.ok ? 'ok' : 'miss') : 'no verdict'} (answers: ${seen.join(' ')})`);
   if (!verdict) return;

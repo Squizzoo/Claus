@@ -169,10 +169,11 @@ class SessionStore {
     return s;
   }
 
-  _set(s, state) {
+  /** `at` (optional): when the change really happened, for the work and wait times (an interrupt is noticed a few seconds late). */
+  _set(s, state, at) {
     if (s.state === state) return false;
     const before = s.state;
-    const now = this.now();
+    const now = at && at <= this.now() ? at : this.now();
     // A wait only counts when the chat then ran again: a cancelled question that is left alone says nothing about you.
     // Either way the time spent waiting is not time Claude spent working.
     // A question that turns into an approval is one wait, so the pieces are added up until the chat runs again.
@@ -288,7 +289,7 @@ class SessionStore {
         const idleSince = e.statusUpdatedAt || 0;
         const interrupted = idleSince > s.since && now - idleSince >= INTERRUPT_GRACE_MS;
         if (s.state === 'working' && (interrupted || now - s.since > STALE_WORKING_MS)) {
-          changed = this._set(s, 'idle') || changed;
+          changed = this._set(s, 'idle', interrupted ? idleSince : undefined) || changed;
         }
       }
     }

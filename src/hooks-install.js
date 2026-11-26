@@ -73,7 +73,8 @@ function status({ file = defaultFile(), port = DEFAULT_PORT } = {}) {
       mine: json.hooks[ev].reduce((m, g) => m + (g.hooks || []).filter((h) => isPet(h, port)).length, 0),
     }));
     const installed = countPet(json, port);
-    return { file, exists: true, installed, complete: installed === Object.keys(EVENTS).length, events };
+    const complete = Object.keys(EVENTS).every((ev) => events.some((e) => e.event === ev && e.mine > 0)); // every event has an entry of ours
+    return { file, exists: true, installed, complete, events };
   } catch (err) {
     // `missing`: there is no settings file yet but Claude Code's folder exists, so the file can simply be created
     const missing = err.code === 'ENOENT' && fs.existsSync(path.dirname(file));

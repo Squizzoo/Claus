@@ -594,3 +594,15 @@ test('a pending question or approval is not cleared by an idle registry', () => 
     assert.equal(st.snapshot().mood, mood);
   }
 });
+
+test('an interrupted turn counts its work up to the moment it went idle, not up to when the pet noticed', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  c.advance(10_000);
+  const idleAt = c.now();
+  c.advance(6_000);
+  st.syncRegistry([{ sessionId: SID, name: 'x', status: 'idle', statusUpdatedAt: idleAt }]);
+  assert.equal(st.snapshot().mood, 'idle');
+  assert.deepEqual(st.takeTimes().work, [10_000]);
+});
