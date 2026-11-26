@@ -465,7 +465,9 @@ test('a wait that never ends in a resume is not recorded, and muted chats never 
   st.applyHook(hook('PreToolUse', { tool_name: 'AskUserQuestion' }));
   c.advance(60 * 60_000);
   st.applyHook(hook('Stop')); // the question was cancelled and the chat finished
-  assert.deepEqual(st.takeTimes().waits, []);
+  const ended = st.takeTimes();
+  assert.deepEqual(ended.waits, []);
+  assert.deepEqual(ended.work, [0]); // the abandoned hour is not counted as work either
 
   st.setMuted({ ids: [SID] });
   st.applyHook(hook('UserPromptSubmit'));

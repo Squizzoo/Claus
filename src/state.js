@@ -172,9 +172,10 @@ class SessionStore {
     const before = s.state;
     const now = this.now();
     // A wait only counts when the chat then ran again: a cancelled question that is left alone says nothing about you.
-    if (WAITING_ON_YOU.has(before) && state === 'working') {
+    // Either way the time spent waiting is not time Claude spent working.
+    if (WAITING_ON_YOU.has(before)) {
       s.turnWaitMs += now - s.since;
-      if (!this._isMuted(s)) this.times.waits.push(now - s.since);
+      if (state === 'working' && !this._isMuted(s)) this.times.waits.push(now - s.since);
     }
     // A turn ends when the chat finishes or goes idle: the time it spent working is the turn minus what it waited on you.
     if (s.turnStart && (state === 'idle' || state === 'done')) {

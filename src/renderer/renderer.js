@@ -94,6 +94,12 @@
     };
   }
 
+  /** Changes the text of an element in place (its text node keeps its identity, so it is not a redraw of the list). */
+  function setText(el, text) {
+    if (el.firstChild && el.firstChild.nodeType === Node.TEXT_NODE) el.firstChild.data = text;
+    else el.textContent = text;
+  }
+
   /** Once a second, rewrites the times in the rows already on screen. The rows themselves are not rebuilt. */
   function tickTimes() {
     if (!last.expanded) return;
@@ -105,11 +111,11 @@
       const t = rowTexts(r, flat);
       const sub = li.querySelector('.sub');
       if (sub.textContent !== t.sub) {
-        sub.textContent = t.sub;
+        setText(sub, t.sub);
         li.title = rowTitle(r, t.sub);
       }
       const short = li.querySelector('.short');
-      if (short.textContent !== t.short) short.textContent = t.short;
+      if (short.textContent !== t.short) setText(short, t.short);
     }
   }
 

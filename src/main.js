@@ -205,7 +205,7 @@ const celebrator = celebrateLib.createCelebrator();
 /** Today's finished chats, waits and work for the settings window, the tray and the header tooltip. */
 const todaySummary = () => dailyLib.summary(settings.daily, celebrateLib.finishedToday(settings.streak, new Date()), new Date());
 /** A length for the tray: `6m`, `1h 05m`. */
-const clockLength = (ms) => (ms < 60_000 ? '0m' : PetView.formatDuration(Math.floor(ms / 60_000) * 60_000).replace(/ dd?s$/, ''));
+const clockLength = (ms) => (ms < 60_000 ? '0m' : PetView.formatDuration(Math.floor(ms / 60_000) * 60_000).replace(/ \d\d?s$/, ''));
 /** Counts the chats that just finished (the day counter) and says how many finished together, if that is a celebration. */
 function collectFinished() {
   let together = 0;

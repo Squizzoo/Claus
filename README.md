@@ -201,8 +201,9 @@ How the watcher behaves (`scripts/watch-claude.ps1`):
   Nothing else about a chat is written to disk. The day's summary (the *Today* tab) is the date and five numbers
   (waits, total and longest wait, work time), never a chat name.
 - Token counts: the pet finds each chat's transcript (`~/.claude/projects/*/<session id>.jsonl`) by session id and
-  reads the usage counters of its assistant messages, only the part added since the last look. Of each line it uses the
-  message id and four numbers; no text is parsed into anything, stored or logged. Nothing is read from a path a hook sent.
+  reads the usage counters of its assistant messages, only the part added since the last look. A line that carries usage
+  is parsed in memory (it also holds the message text); only its message id and four numbers are kept, and the rest is
+  dropped at once, never stored or logged. Nothing is read from a path a hook sent.
 - Chat names come from `~/.claude/sessions/*.json` (metadata only, never the `.key` files).
 - `CLAUDE_PET_LOG=1` writes event names and 8-character session ids to `pet-events.log`.
 

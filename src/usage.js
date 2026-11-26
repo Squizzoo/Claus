@@ -1,7 +1,7 @@
 'use strict';
 // Token totals of one chat, from the usage counters in its transcript (a JSONL file Claude Code keeps).
-// Pure: text in, numbers out. Only the counters and the message id are read; no message text is parsed
-// into anything, stored or logged.
+// Pure: text in, numbers out. A line that carries usage is parsed in memory (it also holds the message text), but only the
+// message id and the four counters are kept; everything else is dropped at once and never stored or logged.
 //
 // Claude Code writes the same assistant message several times while it streams (same `message.id`), so
 // totals are kept per id, taking the largest value of each counter, and summed at the end.

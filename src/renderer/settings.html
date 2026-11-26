@@ -97,7 +97,7 @@
         <label class="switch"><input type="checkbox" id="streak"><span class="track"></span><span class="label">Show <b id="today">0</b> finished today</span></label>
 
         <h2>Tokens per chat</h2>
-        <p class="hint">A token count on each row, read from the chat's own transcript file. Only the counters are read, never the text.</p>
+        <p class="hint">A token count on each row, read from the chat's own transcript file. Each line is read in memory only to pick out its id and four counters; the text is dropped at once and never stored or logged.</p>
         <label class="switch"><input type="checkbox" id="show-tokens"><span class="track"></span><span class="label">Show tokens on each row</span></label>
       </div>
     </section>

@@ -58,7 +58,7 @@ Small changes with a big payoff now that the chat list is getting long.
 - [x] **Durations.** `working for 4m 12s · active 8s ago` on a working row, counting in place; a turn is timed from
       the prompt and keeps running across approvals.
 - [x] **Token badge per chat.** The hooks carry no token data, so the counters are read from the chat's transcript file
-      (numbers only, deduplicated by message id). Tokens, no cost estimate: a price table goes stale.
+      (only the id and four counters of each message are kept, deduplicated by message id). Tokens, no cost estimate: a price table goes stale.
 - [x] **Daily summary.** Chats finished, waits on you, total and longest wait, work time. A *Today* tab, the tray and the
       header tooltip. Local only, numbers only. Waits longer than 4 hours are skipped (abandoned chats).
 - [x] **Row quick actions** (right-click): open in Claude, copy session id, open the project folder, in VS Code or in a
