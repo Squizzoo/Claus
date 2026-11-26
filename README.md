@@ -40,6 +40,10 @@ patience from the tray icon: *Gets angry after waiting* (1, 2, 5, 10 minutes or 
 **Click a chat:** the chat opens in Claude Desktop and the Claude window is raised
 above whatever covers it (restored if minimised), via `src/focus-claude.ps1`.
 
+**A chat outside Claude Desktop** (a terminal, or the VS Code extension) is brought forward instead: the pet walks up
+from the chat's process to the window it runs in and raises it (`src/focus-claude.ps1 -FromPid`). A terminal with tabs
+comes forward as a whole window; the pet cannot pick the tab.
+
 **Open a chat yourself:** a finished chat you open in Claude Desktop (without using the pet) is
 cleared too, as soon as it has been in front for a second or two. The pet reads the open chat's
 id from the Claude window through Windows UI Automation (`src/open-chat.ps1`), and only asks while
@@ -57,6 +61,16 @@ something again; *Clear finished* / *Clear idle* in the footer do it in bulk, wi
 sorting (needs me first / most recent) and density (comfortable / compact). Everything is
 remembered in `pet-settings.json`.
 
+**More per row:** a working chat shows `working for 4m 12s · active 8s ago` (it counts in place, once a second; the
+turn is timed from your prompt and keeps running across approvals), a waiting chat `waiting 6m 03s!`, and a finished
+one how long ago it finished. A token count such as `44k tok` sits at the end of the line (input, output and cache
+writes; the tooltip also shows the cache reads). It is read from the chat's own transcript file, see Privacy;
+*Show tokens on each row* in the Behaviour tab turns it off. **Right-click a row** for quick actions: open in Claude (or
+bring its terminal forward), copy the session id, open the project folder, in VS Code or in a terminal (Windows
+Terminal, else PowerShell), pin and mute. The *Today* tab of the settings window (and a line in the tray menu) sums up
+the day: chats finished, how often and how long chats waited on you, the longest wait, and the time Claude spent
+working.
+
 ## Make it yours
 
 **Double-click the pet** to open the settings window: a gallery of all 16 pets, a big live preview of the one you
@@ -64,7 +78,7 @@ pick (with a mood switcher, so you can see it happy, worried or angry), and tile
 Every click applies to the real pet straight away. The *Sound* tab has the sound packs (with buttons to hear each
 one), volume, quiet hours and mute; the *Notifications* tab has snooze, Windows toasts, the repeat reminder and
 auto-hide; the *Behaviour* tab has how long the pet waits before it gets angry and the
-finished-today counter. The tray menu (right-click the tray icon) still has every setting except the mustache, plus *Settings...*
+finished-today counter and the token counts; the *Today* tab has the day's numbers. The tray menu (right-click the tray icon) still has every setting except the mustache, plus *Settings...*
 to open the window; both always show the same values. Everything is remembered.
 
 - **Pet:** cat, dog, bunny, bird, penguin, owl, dragon, sprout, blob, ghost, robot, alien, car, sun, moon
@@ -184,7 +198,11 @@ How the watcher behaves (`scripts/watch-claude.ps1`):
 - Your preferences are saved to `pet-settings.json` in the app's user-data folder:
   the session ids you pinned or muted, the project folder paths you muted or collapsed, the pet,
   colour, accessory and sound you chose, and today's date with the number of chats finished.
-  Nothing else about a chat is written to disk.
+  Nothing else about a chat is written to disk. The day's summary (the *Today* tab) is the date and five numbers
+  (waits, total and longest wait, work time), never a chat name.
+- Token counts: the pet finds each chat's transcript (`~/.claude/projects/*/<session id>.jsonl`) by session id and
+  reads the usage counters of its assistant messages, only the part added since the last look. Of each line it uses the
+  message id and four numbers; no text is parsed into anything, stored or logged. Nothing is read from a path a hook sent.
 - Chat names come from `~/.claude/sessions/*.json` (metadata only, never the `.key` files).
 - `CLAUDE_PET_LOG=1` writes event names and 8-character session ids to `pet-events.log`.
 
@@ -238,7 +256,12 @@ POST to the hook receiver by hand disappear again after about a minute (they are
 - An interrupted chat (Esc) fires no `Stop`; the pet drops its "working" state
   after ~30 s via the registry. A question or approval you cancelled stays until
   the chat runs again or you click it.
-- Chats started outside Claude Desktop (a terminal) are listed but cannot be opened from the pet.
+- Chats started outside Claude Desktop (a terminal, VS Code) cannot be opened, only brought forward: the pet raises the
+  window their process runs in. Windows Terminal raises the window, not the tab. A terminal started through Windows'
+  default-terminal hand-off has no window among the chat's parent processes, so nothing is raised (the log says
+  `no-window`). Chats in WSL cannot be focused.
+- A chat that was already open when the pet started has no token count until its transcript is found (within 10 s), and a
+  chat without messages yet has none at all. The count is tokens, not money: there is no price table to go stale.
 - Toasts have no "Open chat" button (Electron only supports those on macOS): the whole toast is the button. A toast you
   click in the notification centre after it timed out may do nothing, depending on Windows.
 - The pet has no taskbar button, so it cannot flash the taskbar; escalation is the repeat reminder.

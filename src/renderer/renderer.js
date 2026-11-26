@@ -87,7 +87,7 @@
     if (r.overdue) when = `waiting ${PetView.formatDuration(now - r.since)}!`;
     else if (r.state === 'working') when = `for ${PetView.formatDuration(now - (r.turnStart || r.since))} · active ${PetView.formatAgo(now - r.lastActive)}`;
     else when = ago(r.since);
-    const tokens = showTokens(r) ? ` · ${PetView.formatTokens(r.tokens)} tokens` : '';
+    const tokens = showTokens(r) ? ` · ${PetView.formatTokens(r.tokens)} tok` : '';
     return {
       sub: `${PHRASE[r.state]} ${r.state === 'working' ? '' : '· '}${when}${tokens}${showFolder && r.folder ? ' · ' + r.folder : ''}`,
       short: shortAge(r.state === 'working' ? r.turnStart || r.since : r.since),
