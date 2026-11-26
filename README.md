@@ -108,7 +108,8 @@ All of this is in the settings window (*Notifications* tab) and the tray menu.
   By default only when the pet is not visible (auto-hidden, or your mouse is on another screen than the pet);
   *Always* and *Off* are the other choices. Click the toast to open the chat; a terminal chat, which cannot be
   opened, brings up the pet and its list instead. Toasts are silent (the pet already chimes) and Windows keeps them in
-  its notification centre. They contain only the chat name, the kind of alert and the project folder.
+  its notification centre. Under *Show a toast when* you pick which kinds get one (a question, an approval, a chat that
+  finished); for instance only questions and approvals. They contain only the chat name, the kind of alert and the project folder.
 - **Focus awareness:** no sound or toast for a chat you are already looking at in Claude Desktop (the chip stays).
   The first alert after starting the pet cannot know yet, because the window watcher only starts when it is first asked.
 - **Repeat reminder** (off, 2, 5, 10 or 15 minutes): a chat that keeps waiting on a question or approval plays its

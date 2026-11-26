@@ -246,15 +246,16 @@ function deliver(alerts, together) {
   const fresh = alerts.filter((a) => !a.reminder && a.state !== 'overdue');
   if (!fresh.length || !TOAST_ALLOWED) return;
   const cursorDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-  const wantToast = notifyLib.shouldToast({
+  const where = {
     mode: settings.notify.toast,
     snoozed: snoozed(),
     petVisible: petShown && win.isVisible(),
     cursorOnPetDisplay: cursorDisplay.id === displayFor(petPos.x, petPos.y, PET, PET).id,
-  });
-  if (!wantToast) return;
+    kinds: settings.notify.toastKinds,
+  };
   const rows = store.snapshot().sessions;
   for (const a of fresh) {
+    if (!notifyLib.shouldToast({ ...where, state: a.state })) continue;
     const row = rows.find((r) => r.id === a.id);
     if (!row) continue;
     showToast(
@@ -431,7 +432,7 @@ function settingsSnapshot() {
     finishedToday: celebrateLib.finishedToday(settings.streak, new Date()),
     quietNow: lookLib.isQuiet(new Date(), settings.look.quiet),
     notify: { ...settings.notify, snoozeUntil: snoozed() ? settings.notify.snoozeUntil : 0 },
-    notifyChoices: { toast: notifyLib.TOAST, remind: notifyLib.REMIND, autoHide: notifyLib.AUTO_HIDE, snooze: notifyLib.SNOOZE },
+    notifyChoices: { toast: notifyLib.TOAST, kinds: notifyLib.KINDS, remind: notifyLib.REMIND, autoHide: notifyLib.AUTO_HIDE, snooze: notifyLib.SNOOZE },
     quiet: lookLib.QUIET_ORDER.map((id) => ({ id, label: lookLib.QUIET[id].label })),
     patience: lookLib.PATIENCE,
   };
@@ -646,8 +647,8 @@ function previewSound(req) {
 ipcMain.on('set-look', (_e, patch) => updateLook(patch));
 ipcMain.on('set-behaviour', (_e, patch) => applyBehaviour(patch));
 ipcMain.on('set-notify', (_e, patch) => {
-  const { toast, remindMin, autoHide } = patch && typeof patch === 'object' ? patch : {};
-  updateNotify({ toast, remindMin, autoHide }); // the snooze has its own message: only its presets are accepted
+  const { toast, toastKinds, remindMin, autoHide } = patch && typeof patch === 'object' ? patch : {};
+  updateNotify({ toast, toastKinds, remindMin, autoHide }); // the snooze has its own message: only its presets are accepted
 });
 ipcMain.on('snooze', (_e, minutes) => setSnooze(minutes));
 ipcMain.on('preview-sound', (_e, req) => previewSound(req));
@@ -681,6 +682,7 @@ function buildTray() {
           ...(snoozed() ? { click: () => setSnooze(0) } : { submenu: notifyLib.SNOOZE.map(({ min, label }) => ({ label, click: () => setSnooze(min) })) }),
         },
         { label: 'Toasts', submenu: notifyLib.TOAST.map(({ id, label }) => ({ label, type: 'radio', checked: settings.notify.toast === id, click: () => updateNotify({ toast: id }) })) },
+        { label: 'Toast for', submenu: notifyLib.KINDS.map(({ id, label }) => ({ label, type: 'checkbox', checked: settings.notify.toastKinds[id], click: (i) => updateNotify({ toastKinds: { [id]: i.checked } }) })) },
         { label: 'Repeat reminder', submenu: notifyLib.REMIND.map(({ min, label }) => ({ label, type: 'radio', checked: settings.notify.remindMin === min, click: () => updateNotify({ remindMin: min }) })) },
         { label: 'Auto-hide', submenu: notifyLib.AUTO_HIDE.map(({ id, label }) => ({ label, type: 'radio', checked: settings.notify.autoHide === id, click: () => updateNotify({ autoHide: id }) })) },
         { label: 'Clear finished', click: () => { store.dismissAllDone(); push(); } },

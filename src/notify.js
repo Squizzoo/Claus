@@ -28,7 +28,14 @@ const MAX_SNOOZE_MS = 24 * 3600_000;
 const HIDE_GRACE_MS = 4000; // a pet that no longer needs to be seen stays this long, so it does not flicker
 const SLIDE_MS = 200;
 
-const DEFAULTS = { toast: 'away', remindMin: 0, autoHide: 'off', snoozeUntil: 0 };
+// Which kinds of alert may show a toast (the toast mode decides when, these decide what).
+const KINDS = [
+  { id: 'question', label: 'A chat asks a question' },
+  { id: 'approval', label: 'A chat needs an approval' },
+  { id: 'done', label: 'A chat has finished' },
+];
+
+const DEFAULTS = { toast: 'away', toastKinds: { question: true, approval: true, done: true }, remindMin: 0, autoHide: 'off', snoozeUntil: 0 };
 
 function choices() {
   return {
@@ -50,13 +57,19 @@ function sanitize(input, base = DEFAULTS, now = Date.now()) {
   for (const [key, allowed] of Object.entries(choices())) {
     out[key] = allowed.includes(src[key]) ? src[key] : base[key];
   }
+  const kinds = src.toastKinds && typeof src.toastKinds === 'object' ? src.toastKinds : {};
+  out.toastKinds = {};
+  for (const { id } of KINDS) out.toastKinds[id] = typeof kinds[id] === 'boolean' ? kinds[id] : base.toastKinds[id];
   out.snoozeUntil = 'snoozeUntil' in src ? sanitizeSnooze(src.snoozeUntil, now) : sanitizeSnooze(base.snoozeUntil, now);
   return out;
 }
 
 /** Applies a partial change on top of the current settings. */
 function merge(current, patch, now = Date.now()) {
-  return sanitize({ ...current, ...(patch && typeof patch === 'object' ? patch : {}) }, current, now);
+  const p = patch && typeof patch === 'object' ? patch : {};
+  // a partial toastKinds only changes the kinds it names
+  const toastKinds = p.toastKinds && typeof p.toastKinds === 'object' ? { ...current.toastKinds, ...p.toastKinds } : current.toastKinds;
+  return sanitize({ ...current, ...p, toastKinds }, current, now);
 }
 
 function isSnoozed(until, now = Date.now()) {
@@ -69,8 +82,9 @@ function snoozeEnd(minutes, now = Date.now()) {
 }
 
 /** Should this alert also show a Windows toast? Muted chats never get here: the store drops their alerts. */
-function shouldToast({ mode, snoozed, petVisible, cursorOnPetDisplay }) {
+function shouldToast({ mode, snoozed, petVisible, cursorOnPetDisplay, kinds, state }) {
   if (snoozed || mode === 'off') return false;
+  if (kinds && state && kinds[state] === false) return false; // this kind of alert has toasts switched off
   if (mode === 'always') return true;
   return !petVisible || !cursorOnPetDisplay;
 }
@@ -128,7 +142,7 @@ function clock(ms) {
 }
 
 module.exports = {
-  DEFAULTS, TOAST, REMIND, AUTO_HIDE, SNOOZE, MAX_SNOOZE_MS, HIDE_GRACE_MS, SLIDE_MS,
+  DEFAULTS, TOAST, KINDS, REMIND, AUTO_HIDE, SNOOZE, MAX_SNOOZE_MS, HIDE_GRACE_MS, SLIDE_MS,
   choices, sanitize, merge, sanitizeSnooze, isSnoozed, snoozeEnd,
   shouldToast, filterFocused, needsPet, autoHideDecision, edgeStart, slideAt, clock,
 };

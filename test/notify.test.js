@@ -119,3 +119,20 @@ test('slideAt eases from start to end and clamps', () => {
   assert.deepEqual(N.slideAt(from, to, 2), to);
   assert.ok(N.slideAt(from, to, 0.5).x > 50); // fast at the start, slow at the end
 });
+
+test('toast kinds: default on, partial patches only change the kinds they name, bad values are ignored', () => {
+  assert.deepEqual(N.DEFAULTS.toastKinds, { question: true, approval: true, done: true });
+  const a = N.merge(N.DEFAULTS, { toastKinds: { done: false } }, NOW);
+  assert.deepEqual(a.toastKinds, { question: true, approval: true, done: false });
+  const b = N.merge(a, { toastKinds: { question: false, done: 'yes', other: false } }, NOW);
+  assert.deepEqual(b.toastKinds, { question: false, approval: true, done: false });
+  assert.deepEqual(N.merge(b, { toast: 'always' }, NOW).toastKinds, b.toastKinds); // other patches keep them
+  assert.deepEqual(N.sanitize({ toastKinds: 5 }, N.DEFAULTS, NOW).toastKinds, N.DEFAULTS.toastKinds);
+});
+
+test('shouldToast skips kinds that are switched off', () => {
+  const base = { mode: 'always', snoozed: false, petVisible: true, cursorOnPetDisplay: true, kinds: { question: true, approval: true, done: false } };
+  assert.equal(N.shouldToast({ ...base, state: 'question' }), true);
+  assert.equal(N.shouldToast({ ...base, state: 'done' }), false);
+  assert.equal(N.shouldToast({ ...base, state: 'approval' }), true);
+});

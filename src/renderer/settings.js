@@ -148,6 +148,7 @@
   let quietButtons = [];
   let patienceButtons = [];
   const notifyRows = { snooze: [], toast: [], remind: [], autohide: [] };
+  let kindBoxes = [];
 
   $('muted').addEventListener('change', (e) => window.pet.setBehaviour({ muted: e.target.checked }));
   $('streak').addEventListener('change', (e) => pick({ streak: e.target.checked }));
@@ -218,6 +219,23 @@
         notifyRows.remind = segmented($('remind'), ch.remind.map((x) => [x.min, x.label]), (min) => window.pet.setNotify({ remindMin: min }));
         notifyRows.autohide = segmented($('autohide'), ch.autoHide.map((x) => [x.id, x.label]), (id) => window.pet.setNotify({ autoHide: id }));
       }
+      if (!kindBoxes.length) {
+        kindBoxes = ch.kinds.map(({ id, label }) => {
+          const wrap = el('label', 'switch');
+          const box = el('input');
+          box.type = 'checkbox';
+          box.dataset.kind = id;
+          box.addEventListener('change', () => window.pet.setNotify({ toastKinds: { [id]: box.checked } }));
+          wrap.append(box, el('span', 'track'), el('span', 'label', label));
+          $('toast-kinds').append(wrap);
+          return box;
+        });
+      }
+      for (const box of kindBoxes) {
+        box.checked = nt.toastKinds[box.dataset.kind] !== false;
+        box.disabled = nt.toast === 'off'; // no toasts at all: the kinds do not matter
+      }
+      $('toast-kinds').classList.toggle('disabled', nt.toast === 'off');
       const on = nt.snoozeUntil > 0;
       // while snoozing, "Off" ends it; a preset button restarts it from now
       setChecked(notifyRows.snooze, (b) => (on ? false : b.dataset.value === '0'));
