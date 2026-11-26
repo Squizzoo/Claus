@@ -28,6 +28,8 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: transparen
 .role-pet #panel { display: none !important; }
 .role-panel #pet { display: none; }
 .role-panel.up #panel { bottom: 0; } .role-panel.down #panel { top: 0; }
+/* a pet that is not 150 px: the window is as big as the pet and the 150 px art is scaled to fill it (badge, chips and confetti scale with it) */
+.role-pet.scaled #pet { left: 0; top: 0; right: auto; bottom: auto; transform-origin: 0 0; transform: scale(var(--pet-scale)); }
 
 /* ---------- pet window: shadow, speech bubble and anger mark (the pet art itself is in pet.css) ---------- */
 #shadow { fill: rgba(0, 0, 0, 0.18); }

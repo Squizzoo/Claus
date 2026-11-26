@@ -105,7 +105,9 @@ function needsPet(mode, sessions, attention) {
  * `needed` is true while the pet has a reason to be seen: any chat for `empty`, a chat that needs you for `peek`.
  * `lastNeedAt` is when that last was the case, so the pet only leaves after a short grace.
  */
-function autoHideDecision({ mode, visible, sessions, attention, panelOpen, dragging, hovering, settingsOpen, manualShowUntil = 0, lastNeedAt = 0, now }) {
+function autoHideDecision({ mode, visible, sessions, attention, panelOpen, dragging, hovering, settingsOpen, manualShowUntil = 0, lastNeedAt = 0, forceHide = false, now }) {
+  // `forceHide`: Claude Desktop is not running (follow Claude): the pet leaves at once, whatever the mode, unless the user is busy with it or just asked for it.
+  if (forceHide) return visible && !(panelOpen || dragging || settingsOpen || now < manualShowUntil) ? 'hide' : 'keep';
   if (mode !== 'empty' && mode !== 'peek') return visible ? 'keep' : 'show';
   if (needsPet(mode, sessions, attention)) return visible ? 'keep' : 'show';
   if (!visible) return 'keep';

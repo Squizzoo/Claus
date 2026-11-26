@@ -136,3 +136,17 @@ test('shouldToast skips kinds that are switched off', () => {
   assert.equal(N.shouldToast({ ...base, state: 'done' }), false);
   assert.equal(N.shouldToast({ ...base, state: 'approval' }), true);
 });
+
+test('forceHide (Claude Desktop is gone) hides at once, whatever the mode, unless the user is busy with the pet', () => {
+  const base = { mode: 'off', visible: true, sessions: 3, attention: 2, panelOpen: false, dragging: false, hovering: true, settingsOpen: false, manualShowUntil: 0, lastNeedAt: 1000, forceHide: true, now: 1100 };
+  assert.equal(N.autoHideDecision(base), 'hide');
+  assert.equal(N.autoHideDecision({ ...base, mode: 'peek' }), 'hide');
+  assert.equal(N.autoHideDecision({ ...base, visible: false }), 'keep');
+  assert.equal(N.autoHideDecision({ ...base, panelOpen: true }), 'keep');
+  assert.equal(N.autoHideDecision({ ...base, dragging: true }), 'keep');
+  assert.equal(N.autoHideDecision({ ...base, settingsOpen: true }), 'keep');
+  assert.equal(N.autoHideDecision({ ...base, manualShowUntil: 5000 }), 'keep'); // the tray just asked for it
+  // and it comes back once Claude does (mode off shows it, a mode that hides stays hidden without a reason)
+  assert.equal(N.autoHideDecision({ ...base, forceHide: false, visible: false }), 'show');
+  assert.equal(N.autoHideDecision({ ...base, forceHide: false, visible: false, mode: 'peek', attention: 0 }), 'keep');
+});

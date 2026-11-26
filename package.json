@@ -2,16 +2,76 @@
   "name": "claude-pet",
   "version": "0.1.0",
   "description": "A floating desktop pet that tells you when any Claude chat has finished, has a question or needs your input.",
+  "homepage": "https://github.com/Squizzoo/Claus",
   "main": "src/main.js",
   "private": true,
   "scripts": {
     "start": "electron .",
     "test": "node --test test/",
+    "icon": "node scripts/make-icon.js",
+    "dist": "electron-builder --win --publish never",
+    "dist:dir": "electron-builder --win --dir --publish never",
     "hooks:status": "node scripts/hooks.js status",
     "hooks:install": "node scripts/hooks.js install",
     "hooks:uninstall": "node scripts/hooks.js uninstall"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  },
+  "build": {
+    "appId": "com.claus.pet",
+    "productName": "Claus",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "src/**/*.ps1"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Squizzoo",
+        "repo": "Claus"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Claus",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "Claus-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Claus-${version}-portable.${ext}"
+    }
   }
 }

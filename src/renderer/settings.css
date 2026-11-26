@@ -82,6 +82,13 @@ h2:first-child { margin-top: 0; }
 .pack .play { width: 34px; height: 30px; border: 1px solid var(--line); border-radius: 15px; background: transparent; color: var(--dim); font-weight: 700; cursor: pointer; }
 .pack .play:hover { background: #ffffff1c; color: #fff; }
 .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.status { margin: 0 0 10px; font-size: 13px; color: var(--fg); overflow-wrap: anywhere; }
+.status.warn { color: #f0d98a; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; }
+.btn { height: 30px; padding: 0 14px; border: 1px solid var(--line); border-radius: 15px; background: transparent; color: var(--fg); font-size: 12.5px; cursor: pointer; }
+.btn:hover:not(:disabled) { background: #ffffff14; }
+.btn:disabled { opacity: .4; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #0f1722; font-weight: 600; }
 
 .switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
 .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }

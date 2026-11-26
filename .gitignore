@@ -4,3 +4,4 @@ out/
 CLAUDE.md
 .tokensave
 .playwright-mcp
+dist/
