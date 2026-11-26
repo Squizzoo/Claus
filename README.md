@@ -1,10 +1,59 @@
-# Claus
+<p align="center">
+  <img src="docs/assets/social.png" alt="Claus: a desktop pet that tells you when Claude is done" width="720">
+</p>
 
-A small pet that lives on your desktop (a cat by default, or one of 16 pets) and tells you when any Claude chat has
-**finished**, has a **question** or needs your **approval**. Click it to see all
-your chats; click a chat to jump straight to it in Claude Desktop.
+<h1 align="center">Claus</h1>
 
-Drag it anywhere, including to another monitor; it remembers where you left it.
+<p align="center">
+  <b>A desktop pet that tells you when your Claude chats are done.</b><br>
+  Finished, a question, or waiting for your approval: the pet shows it, and one click takes you to that chat.
+</p>
+
+<p align="center">
+  <a href="https://github.com/Squizzoo/Claus/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Squizzoo/Claus?color=d9732b"></a>
+  <img alt="Platform: Windows" src="https://img.shields.io/badge/platform-Windows-3a7bd5">
+  <img alt="Electron 33" src="https://img.shields.io/badge/electron-33-47848f">
+  <img alt="Local only, no telemetry" src="https://img.shields.io/badge/privacy-local%20only-2f9e5b">
+</p>
+
+<p align="center">
+  <a href="https://github.com/Squizzoo/Claus/releases/latest"><b>Download</b></a> ·
+  <a href="https://squizzoo.github.io/Claus/">Website</a> ·
+  <a href="#install-it-the-packaged-app">Install</a> ·
+  <a href="#privacy">Privacy</a> ·
+  <a href="ROADMAP.md">Roadmap</a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/state-working.png" alt="Working" width="96">
+  <img src="docs/assets/state-done.png" alt="Finished" width="96">
+  <img src="docs/assets/state-question.png" alt="Question" width="96">
+  <img src="docs/assets/state-approval.png" alt="Approval" width="96">
+  <img src="docs/assets/state-angry.png" alt="Angry after waiting" width="96">
+</p>
+
+## Why
+
+You start a long Claude chat, switch to something else and keep glancing back to see if it is done. Claus does the
+watching: a small pet on your desktop (a cat by default, or one of 16) that tells you when any Claude chat has
+**finished**, has a **question** or needs your **approval**. Click it to see all your chats; click a chat to jump straight
+to it in Claude Desktop. Drag it anywhere, including to another monitor; it remembers where you left it.
+
+<p align="center">
+  <img src="docs/assets/list.png" alt="The chat list, grouped by project" width="300">
+  &nbsp;&nbsp;
+  <img src="docs/assets/chips.png" alt="Several kinds of alerts at once" width="200">
+</p>
+
+**Highlights:** 16 pets with colours, hats and mustaches · sounds, toasts, snooze and quiet hours · an impatient pet that
+gets angry when you keep it waiting · search, pin and mute chats · size, opacity, snapping, multi-monitor, click-through ·
+installer with auto-update · everything stays on your computer.
+
+<p align="center">
+  <img src="docs/assets/settings-appearance.png" alt="The settings window" width="720">
+</p>
+
+> Claus is an independent community project. It is not made by, affiliated with or endorsed by Anthropic.
 
 ## How it works
 
