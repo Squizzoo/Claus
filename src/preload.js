@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('pet', {
   togglePanel: (wantedHeight) => ipcRenderer.send('toggle-panel', wantedHeight),
   panelHeight: (h) => ipcRenderer.send('panel-height', h),
   collapse: () => ipcRenderer.send('collapse'),
+  painted: (id) => ipcRenderer.send('painted', id),
   dragStart: () => ipcRenderer.send('drag-start'),
   dragMove: () => ipcRenderer.send('drag-move'),
   dragEnd: () => ipcRenderer.send('drag-end'),

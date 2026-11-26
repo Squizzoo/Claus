@@ -7,7 +7,7 @@ const { app } = require('electron');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function run(win, prefix, { store, setPanel, push, setPrefs }) {
+async function run(win, prefix, { store, setPanel, push, setPrefs, panelWin }) {
   store.syncRegistry = () => false; // keep the real registry out of the pictures
   store.sessions.clear();
   setPrefs(require('./prefs').DEFAULTS); // and the real list preferences (nothing is saved in a shot run)
@@ -23,6 +23,9 @@ async function run(win, prefix, { store, setPanel, push, setPrefs }) {
     await wait(450);
     const img = await win.webContents.capturePage();
     fs.writeFileSync(`${prefix}-${name}.png`, img.toPNG());
+    // The list is its own window beside the pet: save it next to the pet's picture when it is open.
+    const list = panelWin();
+    if (list && list.isVisible()) fs.writeFileSync(`${prefix}-${name}-list.png`, (await list.webContents.capturePage()).toPNG());
   };
 
   await snap('1-sleep');
@@ -82,7 +85,7 @@ async function run(win, prefix, { store, setPanel, push, setPrefs }) {
   chat('c7', 'printuploader.com', 'Resize images in the queue', 'SessionStart');
   chat('c8', 'fundamental.ittica.nl', 'Cluster health check', 'UserPromptSubmit');
   for (const [id, mins] of [['c1', 6], ['c4', 3], ['c2', 12], ['c6', 1]]) store.sessions.get(id).since = Date.now() - mins * 60_000;
-  const evalIn = (code) => win.webContents.executeJavaScript(code);
+  const evalIn = (code) => panelWin().webContents.executeJavaScript(code); // the search box lives in the list window
   const typeQuery = (q) => evalIn(`(() => { const i = document.getElementById('search'); i.value = ${JSON.stringify(q)}; i.dispatchEvent(new Event('input')); })()`);
   setPanel(480);
   await snap('14-list-grouped');
