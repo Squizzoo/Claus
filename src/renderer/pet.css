@@ -1,0 +1,81 @@
+/* The pet's art and moods. Shared by the pet window and the settings window (gallery cards, big preview):
+   everything hangs on classes, never ids, so any number of pets can share one page.
+   A pet is drawn inside an element with the class .pet-host, which also carries the mood-* class and the colour variables. */
+.pet-host { --body: var(--fur); }
+.fur { fill: var(--body); }
+.tail { fill: none; stroke: var(--body); stroke-width: var(--tail-w, 10); stroke-linecap: round; transform-origin: var(--tail-origin, 112px 118px); }
+.inner { fill: var(--inner); }
+.dark { fill: var(--fur-dark); }
+.beak { fill: var(--nose); }
+.cheek { fill: var(--blush); opacity: .55; }
+.eyes { display: none; fill: var(--ink); stroke: none; }
+.eyes path { fill: none; stroke: var(--ink); stroke-width: 3.5; stroke-linecap: round; }
+.eyes .shine { fill: #fff; }
+.eyes .brow { stroke-width: 3; }
+.nose { fill: var(--nose, #d97a7a); }
+.mouth { display: none; fill: none; stroke: var(--ink); stroke-width: 2.6; stroke-linecap: round; }
+.mouth-calm { display: block; }
+.stache { fill: var(--stache, #3a2a22); stroke: none; }
+.bob, .tilt { transform-box: view-box; transform-origin: 75px 134px; }
+
+.blink { transform-origin: var(--eye-origin, 75px 90px); animation: blink 5s infinite; }
+@keyframes blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(0.1); } }
+
+/* idle: calm breathing */
+.mood-idle .eyes-open, .mood-working .eyes-open, .mood-question .eyes-open { display: block; }
+.mood-idle .bob { animation: breathe 4s ease-in-out infinite; }
+@keyframes breathe { 50% { transform: scale(1.02, 0.985); } }
+.mood-idle .tail { animation: wag 4s ease-in-out infinite; }
+
+/* idle actions: a calm pet now and then stretches, yawns, looks around or wags (the renderer adds act-<name> for a moment) */
+.act-stretch .tilt { animation: stretch 1.8s ease-in-out 1; }
+@keyframes stretch { 0%, 100% { transform: none; } 25% { transform: scale(1.08, 0.9); } 60% { transform: scale(0.94, 1.1); } }
+.act-look .tilt { animation: lookaround 1.8s ease-in-out 1; }
+@keyframes lookaround { 0%, 100% { transform: none; } 25%, 45% { transform: rotate(-9deg); } 65%, 80% { transform: rotate(9deg); } }
+.act-wag .tail { animation: wag 0.35s ease-in-out 4; }
+.act-yawn .eyes-open { display: none; } .act-yawn .eyes-closed { display: block; }
+.act-yawn .mouth-calm { display: none; }
+.act-yawn .mouth-happy { display: block; fill: var(--ink); transform-box: fill-box; transform-origin: center top; animation: yawn 2s ease-in-out 1; }
+@keyframes yawn { 0%, 100% { transform: scale(0.5, 0.3); } 25%, 75% { transform: scale(1.25, 2.4); } }
+
+/* sleeping: nobody is around */
+.mood-sleep .eyes-closed { display: block; }
+.mood-sleep .bob { animation: breathe 5s ease-in-out infinite; transform: translateY(2px); }
+
+/* working: bouncing */
+.mood-working .bob { animation: bounce 0.9s ease-in-out infinite; }
+.mood-working .tail { animation: wag 0.5s ease-in-out infinite; }
+@keyframes bounce { 50% { transform: translateY(-5px); } }
+@keyframes wag { 50% { transform: rotate(14deg); } }
+
+/* done: happy hops */
+.mood-done .eyes-happy { display: block; }
+.mood-done .mouth-calm { display: none; } .mood-done .mouth-happy { display: block; }
+.mood-done .bob { animation: hop 1.1s ease-in-out infinite; }
+.mood-done .tail { animation: wag 0.45s ease-in-out infinite; }
+@keyframes hop { 0%, 55%, 100% { transform: translateY(0); } 25% { transform: translateY(-14px); } }
+
+/* question: head tilt */
+.mood-question .tilt { animation: tilt 2.2s ease-in-out infinite; }
+@keyframes tilt { 0%, 100% { transform: rotate(-5deg); } 50% { transform: rotate(5deg); } }
+
+/* approval: urgent, shaking, flushed */
+.pet-host.mood-approval { --body: var(--fur-flush); }
+.mood-approval .eyes-worried { display: block; }
+.mood-approval .mouth-calm { display: none; } .mood-approval .mouth-worried { display: block; }
+.mood-approval .bob { animation: shake 0.5s ease-in-out infinite; }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3px) rotate(-1.5deg); } 75% { transform: translateX(3px) rotate(1.5deg); } }
+
+/* angry: you kept a chat waiting too long. Overrides the face of whatever the mood is. */
+.pet-host.angry { --body: var(--fur-angry); }
+.angry .eyes { display: none !important; }
+.angry .eyes-angry { display: block !important; }
+.angry .cheek { fill: #e8574b; opacity: .6; }
+.angry .mouth { display: none; } .angry .mouth-angry { display: block; }
+.angry .bob { animation: rage 0.34s ease-in-out infinite; }
+.angry .tilt { animation: none; }
+.angry .tail { animation: wag 0.25s ease-in-out infinite; }
+@keyframes rage { 0%, 100% { transform: translate(0, 0) rotate(0); } 25% { transform: translate(-2.5px, 0) rotate(-1.8deg); } 75% { transform: translate(2.5px, 0) rotate(1.8deg); } }
+
+/* a picture of the pet that does not move (gallery cards) */
+.still, .still * { animation: none !important; }

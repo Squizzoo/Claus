@@ -84,16 +84,82 @@ async function petSheets(win, prefix, { store, push, setLook }) {
     }
   }
   await sheet(`${prefix}-idle-acts.png`, actCells, Object.keys(PetArt.IDLE_ACTIONS).length);
-  setLook({ pet: 'cat', skin: 'default', accessory: 'none' });
+  await stacheSheets(win, prefix, { store, push, setLook });
+  setLook({ pet: 'cat', skin: 'default', accessory: 'none', mustache: 'none' });
 }
 
-async function run(win, prefix, { store, setPanel, push, setPrefs, setLook, celebrate, panelWin }) {
+// Mustaches: every pet with every mustache, calm, happy (the widest mouth) and angry, and again on the black skin
+// (a light mustache must not vanish on a pale face patch). `npx electron . --shot=out/m --stache` runs only this.
+async function stacheSheets(win, prefix, { store, push, setLook }) {
+  const PetArt = require('./renderer/pets');
+  const look = async (patch, label) => {
+    setLook(patch);
+    push();
+    await wait(320);
+    return { png: (await win.webContents.capturePage()).toPNG(), label };
+  };
+  const moods = { idle: 'SessionStart', done: 'Stop', angry: 'PermissionRequest' };
+  for (const skin of ['default', 'black']) {
+    for (const [mood, event] of Object.entries(moods)) {
+      if (skin === 'black' && mood === 'angry') continue;
+      store.sessions.clear();
+      store.applyHook({ session_id: 's-pet', cwd: 'C:\p\demo', hook_event_name: event, tool_name: 'Bash' });
+      if (mood === 'angry') store.sessions.get('s-pet').since = Date.now() - 9 * 60_000;
+      const cells = [];
+      for (const mustache of PetArt.MUSTACHE_ORDER.filter((m) => m !== 'none')) {
+        for (const id of PetArt.ORDER) cells.push(await look({ pet: id, skin, accessory: 'none', mustache }, `${id} · ${mustache}`));
+      }
+      await sheet(`${prefix}-stache-${skin === 'black' ? 'black-' : ''}${mood}.png`, cells, 8);
+    }
+  }
+  setLook({ pet: 'cat', skin: 'default', accessory: 'none', mustache: 'none' });
+}
+
+// The settings window, each tab, and a few looks: `npx electron . --shot=out/s --settings`.
+async function settingsShots(prefix, { openSettings, setLook, store, push }) {
+  store.sessions.clear();
+  push();
+  const w = openSettings();
+  await new Promise((r) => (w.webContents.isLoading() ? w.webContents.once('did-finish-load', r) : r()));
+  await wait(600);
+  const run = (js) => w.webContents.executeJavaScript(js);
+  const click = (sel) => run(`document.querySelector('${sel}').click()`);
+  const snap = async (name) => {
+    await wait(350);
+    fs.writeFileSync(`${prefix}-settings-${name}.png`, (await w.webContents.capturePage()).toPNG());
+  };
+  await snap('1-appearance');
+  setLook({ pet: 'penguin', skin: 'blue', accessory: 'hat', mustache: 'handlebar' });
+  await click('#moods [data-mood=approval]');
+  await snap('2-penguin-approval');
+  await click('#moods [data-mood=angry]');
+  setLook({ pet: 'robot', skin: 'default', accessory: 'crown', mustache: 'classic' });
+  await snap('3-robot-angry');
+  await click('#tab-btn-sound');
+  await snap('4-sound');
+  await click('#tab-btn-behaviour');
+  await snap('5-behaviour');
+  setLook({ pet: 'cat', skin: 'default', accessory: 'none', mustache: 'none' });
+  w.destroy();
+}
+
+async function run(win, prefix, { store, setPanel, push, setPrefs, setLook, celebrate, openSettings, panelWin }) {
   store.syncRegistry = () => false; // keep the real registry out of the pictures
   store.sessions.clear();
   setPrefs(require('./prefs').DEFAULTS); // and the real list preferences (nothing is saved in a shot run)
   fs.mkdirSync(path.dirname(prefix), { recursive: true });
   await new Promise((r) => (win.webContents.isLoading() ? win.webContents.once('did-finish-load', r) : r()));
 
+  if (process.argv.includes('--settings')) {
+    await settingsShots(prefix, { openSettings, setLook, store, push });
+    app.quit();
+    return;
+  }
+  if (process.argv.includes('--stache')) {
+    await stacheSheets(win, prefix, { store, push, setLook });
+    app.quit();
+    return;
+  }
   if (process.argv.includes('--pets')) {
     await petSheets(win, prefix, { store, push, setLook });
     app.quit();

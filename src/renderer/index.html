@@ -4,10 +4,11 @@
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:">
   <title>Claus</title>
+  <link rel="stylesheet" href="pet.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="root" class="side-right up mood-sleep">
+  <div id="root" class="pet-host side-right up mood-sleep">
     <section id="panel" aria-label="Claude chats" hidden>
       <div id="card">
         <header><span>Claude chats</span><span id="count"></span></header>
@@ -39,8 +40,8 @@
       <div id="confetti"></div>
       <svg viewBox="0 0 150 150" width="150" height="150" aria-hidden="true">
         <ellipse id="shadow" cx="75" cy="139" rx="34" ry="5.5"/>
-        <g id="bob">
-          <g id="tilt"></g>
+        <g id="bob" class="bob">
+          <g id="tilt" class="tilt"></g>
         </g>
 
         <g id="vein-pos"><g id="vein"><path d="M68 30 q6 1 6 7 M82 30 q-6 1 -6 7 M68 46 q6 -1 6 -7 M82 46 q-6 -1 -6 -7"/></g></g>

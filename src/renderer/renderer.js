@@ -233,9 +233,9 @@
 
   /** Draws the chosen pet into #tilt (only when it changed) and applies its colours. */
   function applyLook(look) {
-    const pet = PetArt.buildPet(look && look.pet, look && look.skin, look && look.accessory);
+    const pet = PetArt.buildPet(look && look.pet, look && look.skin, look && look.accessory, look && look.mustache);
     petId = pet.id;
-    const key = `${pet.id}/${look && look.skin}/${look && look.accessory}`;
+    const key = `${pet.id}/${look && look.skin}/${look && look.accessory}/${look && look.mustache}`;
     if (key !== lookKey) {
       lookKey = key;
       tilt.innerHTML = pet.markup;
@@ -280,7 +280,7 @@
     applyLook(state.look);
     const mood = state.sessions.length === 0 ? 'sleep' : state.mood;
     syncIdle(mood === 'idle' && !state.overdue && state.idleActions !== false);
-    root.className = `role-${ROLE} pet-${petId} side-${state.layout.side} ${state.layout.vertical} mood-${mood}${state.overdue ? ' angry' : ''}${idleAct ? ' ' + idleAct : ''}${root.classList.contains('celebrating') ? ' celebrating' : ''}`;
+    root.className = `pet-host role-${ROLE} pet-${petId} side-${state.layout.side} ${state.layout.vertical} mood-${mood}${state.overdue ? ' angry' : ''}${idleAct ? ' ' + idleAct : ''}${root.classList.contains('celebrating') ? ' celebrating' : ''}`;
     const multi = renderChips(state);
     const text = state.overdue && !multi ? (mood === 'question' ? '?!' : '!!') : BUBBLE[mood] ?? '';
     bubbleText.textContent = text;
@@ -499,6 +499,8 @@
 
   // ---------- drag vs click on the pet ----------
   let down = null;
+  let lastClick = 0;
+  const DOUBLE_CLICK_MS = 350;
   petEl.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     petEl.setPointerCapture(e.pointerId);
@@ -516,8 +518,20 @@
     if (!down) return;
     const wasDrag = down.dragging;
     down = null;
-    if (wasDrag) window.pet.dragEnd();
-    else if (e.type === 'pointerup') window.pet.togglePanel(wantedHeight(last));
+    if (wasDrag) {
+      lastClick = 0; // a drag is never half of a double-click
+      window.pet.dragEnd();
+    } else if (e.type === 'pointerup') {
+      // a single click toggles the list at once; a second click right after it opens the settings window instead
+      const now = Date.now();
+      if (now - lastClick < DOUBLE_CLICK_MS) {
+        lastClick = now; // a third quick click only focuses the settings window again, it does not reopen the list
+        window.pet.openSettings();
+      } else {
+        lastClick = now;
+        window.pet.togglePanel(wantedHeight(last));
+      }
+    }
   };
   petEl.addEventListener('pointerup', finish);
   petEl.addEventListener('pointercancel', finish);

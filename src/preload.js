@@ -19,4 +19,10 @@ contextBridge.exposeInMainWorld('pet', {
   undo: () => ipcRenderer.send('undo'),
   unhide: () => ipcRenderer.send('unhide'),
   setPrefs: (patch) => ipcRenderer.send('set-prefs', patch),
+  // the settings window (double-click the pet, or the tray)
+  openSettings: () => ipcRenderer.send('open-settings'),
+  onSettingsState: (cb) => ipcRenderer.on('settings-state', (_e, s) => cb(s)),
+  setLook: (patch) => ipcRenderer.send('set-look', patch),
+  setBehaviour: (patch) => ipcRenderer.send('set-behaviour', patch),
+  previewSound: (req) => ipcRenderer.send('preview-sound', req),
 });
