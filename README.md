@@ -78,7 +78,9 @@ pick (with a mood switcher, so you can see it happy, worried or angry), and tile
 Every click applies to the real pet straight away. The *Sound* tab has the sound packs (with buttons to hear each
 one), volume, quiet hours and mute; the *Notifications* tab has snooze, Windows toasts, the repeat reminder and
 auto-hide; the *Behaviour* tab has how long the pet waits before it gets angry and the
-finished-today counter and the token counts; the *Today* tab has the day's numbers. The tray menu (right-click the tray icon) still has every setting except the mustache, plus *Settings...*
+finished-today counter and the token counts; the *Window* tab has snapping, monitors, fullscreen and click-through;
+the *System* tab has the Claude Code hooks, start with Windows, following Claude Desktop and updates;
+the *Today* tab has the day's numbers. *Size* and *Opacity* are under *Appearance*. The tray menu (right-click the tray icon) still has every setting except the mustache, plus *Settings...*
 to open the window; both always show the same values. Everything is remembered.
 
 - **Pet:** cat, dog, bunny, bird, penguin, owl, dragon, sprout, blob, ghost, robot, alien, car, sun, moon
@@ -97,7 +99,33 @@ to open the window; both always show the same values. Everything is remembered.
   pet and the celebration; volume 25 to 100 %; *Quiet hours* (22:00-07:00, 23:00-08:00 or 18:00-09:00)
   silence the sounds only, the pet still moves and shows chips. *Mute sounds* stays the manual off switch.
 
-## Run it
+## Install it (the packaged app)
+
+`npm run dist` builds two files into `dist/` (the folder is not committed):
+
+- `Claus-Setup-<version>.exe`: a per-user installer (no admin rights; Start menu entry, optional desktop shortcut, uninstaller).
+  This is the version that can **start with Windows** and **update itself**.
+- `Claus-<version>-portable.exe`: one file, nothing is installed. It cannot start with Windows or update itself.
+
+The installer is not code-signed, so Windows SmartScreen may say "unknown publisher" the first time: *More info*, *Run anyway*.
+
+**First run.** Claus asks once whether it may add its hooks to Claude Code's settings file (`~/.claude/settings.json`). The dialog
+names the file and the entries, an existing hook of yours is never touched, and a backup (`settings.json.pet-bak`) is kept.
+Answer *Not now* and it does not ask again; the *System* tab of the settings window installs or removes the hooks whenever you like.
+Chats that were already open need a restart to pick the hooks up.
+
+**Updates.** The installed version looks for a newer release on this project's GitHub releases about 10 seconds after it starts
+and every 6 hours (a request to GitHub, nothing else is sent). It only tells you (tray menu and the *System* tab); nothing is
+downloaded until you press *Download*, and *Restart to update* installs it. You publish a release yourself with
+`npm run dist` and the files in `dist/` (installer, its `.blockmap` and `latest.yml`).
+
+**Settings and data** stay in `%APPDATA%\claude-pet` for every way of running Claus (source checkout, installer, portable).
+
+**Hide while Claude Desktop is not running** (*System* tab, also in the tray) replaces the old watcher for the installed
+app: the pet hides when Claude Desktop is not running (two checks in a row, 3 seconds apart) and slides back when it opens. Claus itself
+keeps running with its tray icon; use *Start with Windows* to have it there from the start. The watcher scripts below stay for a source checkout.
+
+## Run it from source
 
 ```powershell
 npm install
@@ -109,8 +137,9 @@ node scripts/hooks.js install --apply    # writes the hooks (backup: settings.js
 
 Hooks are read by chats at start, so restart chats that were already open.
 Remove them any time with `node scripts/hooks.js uninstall --apply`.
-Tray icon: settings window, reset position, pet, colour, accessory, sound pack, volume, quiet hours, mute sounds,
-anger patience, finished-today counter, snooze, toasts, repeat reminder, auto-hide, clear finished, quit.
+Tray icon: settings window, reset position, pet, colour, accessory, size, opacity, snap, monitors, above fullscreen, click-through,
+sound pack, volume, quiet hours, mute sounds, anger patience, finished-today counter, snooze, toasts, repeat reminder, auto-hide,
+hide while Claude Desktop is not running, start with Windows and updates (installed version), clear finished, quit.
 
 ## Smarter notifications
 
@@ -131,6 +160,24 @@ All of this is in the settings window (*Notifications* tab) and the tray menu.
 - **Auto-hide:** *when nothing is open* hides the pet while there are no chats; *only when a chat needs me* shows it
   (sliding in from the nearest screen edge) only while something waits. It stays while the list is open, while you
   drag it or hover it, and for 30 seconds after you show it from the tray. Its position is never changed by this.
+
+## Size, position and screens
+
+All of this is in the settings window (*Appearance* and *Window* tabs) and the tray menu.
+
+- **Size:** small, medium, large or extra large (100, 150, 200 or 250 px). Changing it resizes the pet's window once
+  (the pet blinks once) around its centre; the pet, its chips, badge and confetti scale together. The chat list is unchanged.
+- **Opacity:** 100, 85, 70, 50 or 30 %. Only the pet is see-through; the list stays readable.
+- **Snap to:** *screen edges* pulls the pet against the nearest edge when you let go within about 40 px of it, *corners*
+  always settles it in the nearest corner (both leave a 16 px margin). Switching it on pulls the pet in at once.
+- **Monitors:** *Follow the window I work in* moves the pet to the screen of the window that is in front (not the one the mouse
+  is on), keeping its relative place: bottom right stays bottom right. It waits until that screen has been the active one for
+  3 seconds, so it does not chase every click, and it does not move while you drag it or have the list or settings open.
+- **Stay above fullscreen apps:** shows the pet over a fullscreen video or presentation. A game in exclusive fullscreen
+  still covers it; that is a Windows limit.
+- **Click-through:** while no chat needs you (nothing finished, asking or waiting for approval, muted chats not counted)
+  clicks go through the pet to the window below. Hold **Ctrl** and hover over the pet to grab it; the moment a chat needs you
+  it is clickable again. A muted finished chat does not count as needing you: use the tray icon to open the list then.
 
 ## Start and stop with Claude
 
@@ -195,6 +242,10 @@ How the watcher behaves (`scripts/watch-claude.ps1`):
   block or change what Claude does.
 - Only `session_id`, event name, tool *name*, notification type and `cwd` are kept.
   Tool inputs, prompts and messages are dropped before anything is stored or logged.
+- The only thing Claus sends out of this computer is the update check of the installed version (a request to GitHub for the
+  latest release). It can be avoided with the portable version or a source checkout, which never check.
+- Opening a chat is checked afterwards (the jump self-check): the pet asks which chat Claude Desktop shows and compares it with the one
+  it opened. Only the pass/fail count, the time of the last success and Claude Desktop's version number are saved for that.
 - Your preferences are saved to `pet-settings.json` in the app's user-data folder:
   the session ids you pinned or muted, the project folder paths you muted or collapsed, the pet,
   colour, accessory and sound you chose, and today's date with the number of chats finished.
@@ -214,7 +265,14 @@ npm test                                   # state machine, hook receiver, list 
 npx electron . --shot=out/mood             # renders every mood + the list to out/*.png
 npx electron . --shot=out/m --pets         # contact sheets: every pet in every mood, colours, accessories, mustaches, idle actions
 npx electron . --shot=out/s --settings     # the settings window: each tab and a few looks
+npx electron . --shot=out/z --sizes        # the pet at every size, with chips and with the list open
+npm run dist:dir                           # the unpacked app in dist/win-unpacked (quick packaging check)
+npm run dist                               # installer and portable exe in dist/
 ```
+
+To try the packaged app without touching your own Claude Code settings, run it with a test port, its own profile and a
+copy of the settings file: `$env:CLAUDE_SETTINGS_FILE = '<copy of settings.json>'; $env:CLAUDE_PET_PORT = '47999'; dist\win-unpacked\Claus.exe --user-data-dir=<temp folder>`
+(`--setup` forces the first-run question from a source checkout).
 
 `--shot` never writes the real settings. While your own pet is running, give the screenshot
 run its own port and profile (single-instance lock): `$env:CLAUDE_PET_PORT = '47999'` and
@@ -253,10 +311,17 @@ POST to the hook receiver by hand disappear again after about a minute (they are
 
 - The `claude://code/continue?session=…` route is an internal of Claude Desktop
   (verified in 6.28899.6.0), not a documented API. If an update changes it, fix
-  `src/jump.js`; nothing else depends on it.
-- An interrupted chat (Esc) fires no `Stop`; the pet drops its "working" state
-  after ~30 s via the registry. A question or approval you cancelled stays until
-  the chat runs again or you click it.
+  `src/jump.js`; nothing else depends on it. The pet checks itself: after a jump it asks which chat Claude Desktop shows
+  (a small PowerShell helper reads the open chat from Claude's window), and after two misses in a row the tray and the
+  *System* tab warn that opening chats may be broken; after a Claude Desktop update it says "not checked yet" until a jump works.
+  The same helper marks a finished chat as seen when you open it yourself. It needs the chat view to be in front and Windows'
+  UI Automation to see inside Claude (Claude Desktop 6.28899.6.0 shows two web documents; both are read).
+- An interrupted chat (Esc) fires no `Stop`. The pet notices through the registry: a working chat whose registry entry turned
+  idle after the turn started, and stays idle for 4 seconds, drops to idle (the normal `Stop` wins when it comes). A question
+  or approval you cancelled stays until the chat runs again or you click it, because the registry cannot tell it from one you have not answered yet.
+- "Follow the window I work in" uses the window that is in front, so it cannot tell a window you only look at from one you work in,
+  and a full-screen window on another monitor moves the pet there too. Switch it to *Stay where I put it* to stop that.
+- The installer is not code-signed (Windows SmartScreen asks once), and the portable exe cannot start with Windows or update itself.
 - Chats started outside Claude Desktop (a terminal, VS Code) cannot be opened, only brought forward: the pet raises the
   window their process runs in. Windows Terminal raises the window, not the tab. A terminal started through Windows'
   default-terminal hand-off has no window among the chat's parent processes, so nothing is raised (the log says
