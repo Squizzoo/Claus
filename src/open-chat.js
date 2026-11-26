@@ -52,10 +52,10 @@ function createOpenChatWatcher() {
     child.stdin.on('error', () => {}); // the helper died between two questions
   }
 
-  /** Resolves with the open chat's Desktop session id, or null. Never rejects; one question at a time. */
+  /** Resolves with the open chat's Desktop session id, null for none, or undefined when the helper is busy with another question. Never rejects. */
   function query() {
     if (process.platform !== 'win32') return Promise.resolve(null);
-    if (waiting) return Promise.resolve(null);
+    if (waiting) return Promise.resolve(undefined);
     return new Promise((resolve) => {
       try {
         if (!child) start();

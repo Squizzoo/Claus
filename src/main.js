@@ -226,7 +226,7 @@ function push(opts = {}) {
   win.webContents.send('state', { ...snap, expanded: false, paintId: opts.petPaintId });
   if (panelWin && !panelWin.isDestroyed()) panelWin.webContents.send('state', { ...snap, expanded: panelH > 0, paintId: opts.paintId });
   sendSettings();
-  dispatchAlerts(store.takeAlerts(), together);
+  dispatchAlerts(store.takeAlerts(), together, petShown && win.isVisible()); // before updateAutoHide below may show the pet
   if (together && !SHOT_RUN) celebrate(together); // shot runs trigger it themselves, so it does not land in other pictures
   updateAutoHide(snap);
 }
@@ -236,7 +236,7 @@ const FOCUS_RACE_MS = 300; // how long an alert waits to learn which chat you ar
 const TOAST_ALLOWED = !SHOT_RUN && (PORT === DEFAULT_PORT || process.env.CLAUDE_PET_TOAST === '1'); // test instances must not fill the Action Center
 
 /** Sound, toast and peek for alerts that passed snooze and focus. */
-function deliver(alerts, together) {
+function deliver(alerts, together, petWasVisible) {
   if (!alerts.length || !win || win.isDestroyed()) return;
   const states = alerts.map((a) => a.state);
   const sound = currentSound();
@@ -249,7 +249,7 @@ function deliver(alerts, together) {
   const where = {
     mode: settings.notify.toast,
     snoozed: snoozed(),
-    petVisible: petShown && win.isVisible(),
+    petVisible: petWasVisible,
     cursorOnPetDisplay: cursorDisplay.id === displayFor(petPos.x, petPos.y, PET, PET).id,
     kinds: settings.notify.toastKinds,
   };
@@ -258,11 +258,15 @@ function deliver(alerts, together) {
     if (!notifyLib.shouldToast({ ...where, state: a.state })) continue;
     const row = rows.find((r) => r.id === a.id);
     if (!row) continue;
-    showToast(
-      { name: row.name, folder: row.folder, state: a.state },
-      () => openFromToast(a.id),
-      () => debugLog(`toast shown ${a.id.slice(0, 8)} ${a.state}`)
-    );
+    try {
+      showToast(
+        { name: row.name, folder: row.folder, state: a.state },
+        () => openFromToast(a.id),
+        () => debugLog(`toast shown ${a.id.slice(0, 8)} ${a.state}`)
+      );
+    } catch (err) {
+      debugLog(`toast failed: ${err.message}`);
+    }
   }
 }
 
@@ -278,22 +282,25 @@ function openFromToast(id) {
 }
 
 /** Applies snooze, then focus awareness, then delivers. Never blocks push(). */
-function dispatchAlerts(alerts, together) {
+function dispatchAlerts(alerts, together, petWasVisible) {
   if (!alerts.length) return;
   if (snoozed()) {
     debugLog(`suppressed snoozed ${alerts.length}`);
     return;
   }
-  if (!alerts.some((a) => store.hostIdOf(a.id))) return deliver(alerts, together);
+  if (!alerts.some((a) => store.hostIdOf(a.id))) return deliver(alerts, together, petWasVisible);
   // The chat open in front is only known after asking the helper; an answer that is late or missing means notify as usual.
-  const timeout = new Promise((resolve) => setTimeout(() => resolve(null), FOCUS_RACE_MS));
+  let timer;
+  const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(null), FOCUS_RACE_MS); });
   Promise.race([openChat.query(), timeout])
     .catch(() => null)
     .then((openHostId) => {
+      clearTimeout(timer);
       const kept = notifyLib.filterFocused(alerts, (id) => store.hostIdOf(id), openHostId);
       for (const a of alerts) if (!kept.includes(a)) debugLog(`suppressed focused ${a.id.slice(0, 8)} ${a.state}`);
-      deliver(kept, together);
-    });
+      deliver(kept, together, petWasVisible);
+    })
+    .catch((err) => debugLog(`deliver failed: ${err.message}`)); // notifying is never allowed to break the pet
 }
 
 // ---------- auto-hide and peek ----------
@@ -532,6 +539,11 @@ ipcMain.on('open-settings', () => {
 
 ipcMain.on('drag-start', () => {
   stopSlide();
+  if (!petShown) {
+    petShown = true; // grabbed while sliding out: it stays
+    lastNeedAt = Date.now();
+    win.setOpacity(1);
+  }
   const c = screen.getCursorScreenPoint();
   drag = { cx: c.x, cy: c.y, px: petPos.x, py: petPos.y };
   if (panelH > 0) setPanel(0);
@@ -751,6 +763,7 @@ app.whenReady().then(async () => {
       checking = true;
       try {
         const hostId = await openChat.query();
+        if (hostId === undefined) return; // the helper was busy with another question: no answer, not "no chat open"
         if (hostId !== lastSeen) {
           lastSeen = hostId;
           debugLog(`open chat in Claude: ${hostId ? hostId.slice(0, 14) : 'none'}`);
