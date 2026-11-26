@@ -326,7 +326,10 @@
     applyLook(state.look);
     const mood = state.sessions.length === 0 ? 'sleep' : state.mood;
     syncIdle(mood === 'idle' && !state.overdue && state.idleActions !== false);
-    root.className = `pet-host role-${ROLE} pet-${petId} side-${state.layout.side} ${state.layout.vertical} mood-${mood}${state.overdue ? ' angry' : ''}${idleAct ? ' ' + idleAct : ''}${root.classList.contains('celebrating') ? ' celebrating' : ''}`;
+    // the pet window is petSize px wide; the 150 px art is scaled to fill it (size M adds no transform at all)
+    const scale = (state.petSize || 150) / 150;
+    root.style.setProperty('--pet-scale', String(scale));
+    root.className = `pet-host role-${ROLE} pet-${petId} side-${state.layout.side} ${state.layout.vertical} mood-${mood}${state.overdue ? ' angry' : ''}${idleAct ? ' ' + idleAct : ''}${root.classList.contains('celebrating') ? ' celebrating' : ''}${scale !== 1 ? ' scaled' : ''}`;
     const multi = renderChips(state);
     const text = state.overdue && !multi ? (mood === 'question' ? '?!' : '!!') : BUBBLE[mood] ?? '';
     bubbleText.textContent = text;
@@ -593,6 +596,16 @@
   petEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') window.pet.togglePanel(wantedHeight(last));
   });
+
+  // Click-through: while the window ignores the mouse it still gets the moves (forwarded); Ctrl + hover asks main to make it clickable again.
+  if (ROLE === 'pet') {
+    let lastGrab = 0;
+    window.addEventListener('mousemove', (e) => {
+      if (!e.ctrlKey || Date.now() - lastGrab < 250) return;
+      lastGrab = Date.now();
+      window.pet.petGrab();
+    });
+  }
 
   window.pet.onState(render);
   window.pet.onAlert((a) => playSound(PetSounds.topKind(a.states), a.sound));

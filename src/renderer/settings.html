@@ -16,6 +16,7 @@
       <button type="button" role="tab" id="tab-btn-sound" data-tab="sound" aria-selected="false" aria-controls="tab-sound">Sound</button>
       <button type="button" role="tab" id="tab-btn-notify" data-tab="notify" aria-selected="false" aria-controls="tab-notify">Notifications</button>
       <button type="button" role="tab" id="tab-btn-behaviour" data-tab="behaviour" aria-selected="false" aria-controls="tab-behaviour">Behaviour</button>
+      <button type="button" role="tab" id="tab-btn-window" data-tab="window" aria-selected="false" aria-controls="tab-window">Window</button>
       <button type="button" role="tab" id="tab-btn-today" data-tab="today" aria-selected="false" aria-controls="tab-today">Today</button>
     </nav>
   </header>
@@ -38,6 +39,10 @@
         <div id="accessories" class="tiles" role="radiogroup" aria-label="Accessory"></div>
         <h2>Mustache</h2>
         <div id="mustaches" class="tiles" role="radiogroup" aria-label="Mustache"></div>
+        <h2>Size</h2>
+        <div id="size" class="seg" role="radiogroup" aria-label="Size"></div>
+        <h2>Opacity</h2>
+        <div id="opacity" class="seg" role="radiogroup" aria-label="Opacity"></div>
       </aside>
     </section>
 
@@ -99,6 +104,27 @@
         <h2>Tokens per chat</h2>
         <p class="hint">A token count on each row, read from the chat's own transcript file. Each line is read in memory only to pick out its id and four counters; the text is dropped at once and never stored or logged.</p>
         <label class="switch"><input type="checkbox" id="show-tokens"><span class="track"></span><span class="label">Show tokens on each row</span></label>
+      </div>
+    </section>
+
+    <!-- ===== Window: where the pet sits and how it behaves there ===== -->
+    <section id="tab-window" class="tab" role="tabpanel" aria-labelledby="tab-btn-window" hidden>
+      <div class="col-form">
+        <h2>Snap to</h2>
+        <p class="hint">When you let go of the pet it settles against a screen edge or into a corner.</p>
+        <div id="snap" class="seg" role="radiogroup" aria-label="Snap to"></div>
+
+        <h2>Monitors</h2>
+        <p class="hint">With several screens the pet can move to the screen of the window you are working in, keeping its place (bottom right stays bottom right). It waits a few seconds first, so it does not chase every click.</p>
+        <div id="monitor" class="seg" role="radiogroup" aria-label="Monitors"></div>
+
+        <h2>Above fullscreen apps</h2>
+        <p class="hint">Show the pet over a fullscreen video or presentation. Games in exclusive fullscreen still cover it.</p>
+        <label class="switch"><input type="checkbox" id="fullscreen"><span class="track"></span><span class="label">Stay above fullscreen apps</span></label>
+
+        <h2>Click-through</h2>
+        <p class="hint">While no chat needs you, clicks go straight through the pet to the window below. Hold Ctrl and hover over it to grab it. A finished chat that is muted does not count as needing you.</p>
+        <label class="switch"><input type="checkbox" id="click-through"><span class="track"></span><span class="label">Click through the pet while nothing needs me</span></label>
       </div>
     </section>
 

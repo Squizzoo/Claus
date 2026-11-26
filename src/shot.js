@@ -139,10 +139,41 @@ async function settingsShots(prefix, { openSettings, setLook, store, push }) {
   await snap('4-sound');
   await click('#tab-btn-behaviour');
   await snap('5-behaviour');
+  await click('#tab-btn-window');
+  await snap('6-window');
   await click('#tab-btn-today');
-  await snap('6-today');
+  await snap('7-today');
   setLook({ pet: 'cat', skin: 'default', accessory: 'none', mustache: 'none' });
   w.destroy();
+}
+
+// The pet at every size, calm and with chips (badge and chips scale with the art), and with the list open: `npx electron . --shot=out/size --sizes`.
+async function sizeSheets(win, prefix, { store, setPanel, push, setLook, panelWin }) {
+  const hook = (id, name, event, extra = {}) => {
+    store.applyHook({ session_id: id, cwd: `C:\\xampp\\htdocs\\${name}`, hook_event_name: event, ...extra });
+    store.sessions.get(id).name = name;
+  };
+  for (const size of ['s', 'm', 'l', 'xl']) {
+    setLook({ size });
+    store.sessions.clear();
+    hook('a', 'bonnebella.nl', 'Stop');
+    await wait(500);
+    push();
+    await wait(450);
+    fs.writeFileSync(`${prefix}-${size}-done.png`, (await win.webContents.capturePage()).toPNG());
+    hook('b', 'delijstenfabriek.nl', 'PreToolUse', { tool_name: 'AskUserQuestion' });
+    hook('c', 'printuploader.com', 'PermissionRequest', { tool_name: 'Bash' });
+    push();
+    await wait(450);
+    fs.writeFileSync(`${prefix}-${size}-chips.png`, (await win.webContents.capturePage()).toPNG());
+    setPanel(260);
+    await wait(500);
+    fs.writeFileSync(`${prefix}-${size}-pet.png`, (await win.webContents.capturePage()).toPNG());
+    const list = panelWin();
+    if (list && list.isVisible()) fs.writeFileSync(`${prefix}-${size}-list.png`, (await list.webContents.capturePage()).toPNG());
+    setPanel(0);
+  }
+  setLook({ size: 'm' });
 }
 
 async function run(win, prefix, { store, setPanel, push, setPrefs, setLook, celebrate, openSettings, panelWin }) {
@@ -154,6 +185,11 @@ async function run(win, prefix, { store, setPanel, push, setPrefs, setLook, cele
 
   if (process.argv.includes('--settings')) {
     await settingsShots(prefix, { openSettings, setLook, store, push });
+    app.quit();
+    return;
+  }
+  if (process.argv.includes('--sizes')) {
+    await sizeSheets(win, prefix, { store, setPanel, push, setLook, panelWin });
     app.quit();
     return;
   }

@@ -17,12 +17,13 @@ const PetView = require('./renderer/view');
 const celebrateLib = require('./celebrate');
 const dailyLib = require('./daily');
 const notifyLib = require('./notify');
+const placeLib = require('./placement');
 const { showToast } = require('./toast');
 const { createTranscriptReader } = require('./transcript');
 const { rowMenuTemplate, vscodeUrl, terminalCommand } = require('./row-menu');
 
 const PORT = Number(process.env.CLAUDE_PET_PORT) || DEFAULT_PORT;
-const PET = 150; // collapsed window: the pet only
+let PET = lookLib.sizePx(lookLib.DEFAULTS.size); // collapsed window: the pet only; the pixel size of the chosen look.size (set in createWindow)
 const PANEL_W = 300; // expanded window width
 const MAX_PANEL = 480; // tallest list the window will grow to
 const MARGIN = 16;
@@ -39,11 +40,12 @@ let settingsWin = null; // the settings window (a normal window, opened by doubl
 let rebuildTray = () => {}; // set by buildTray; called when a setting changes elsewhere so the tray checkmarks stay right
 let tray = null;
 let server = null;
-let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, notify: notifyLib.DEFAULTS, streak: celebrateLib.EMPTY, daily: dailyLib.EMPTY }; // impatientMin 0 = never angry
+let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, notify: notifyLib.DEFAULTS, place: placeLib.DEFAULTS, streak: celebrateLib.EMPTY, daily: dailyLib.EMPTY }; // impatientMin 0 = never angry
 let petPos = { x: 0, y: 0 }; // top-left of the pet, the source of truth for position
 let panelH = 0; // extra height wanted by the list (0 = collapsed)
 let layout = { side: 'right', vertical: 'up' };
 let drag = null;
+let followState = { displayId: null, since: 0 }; // the monitor the user's window is on, and since when
 
 // ---------- persistence ----------
 const settingsFile = () => path.join(app.getPath('userData'), 'pet-settings.json');
@@ -56,6 +58,8 @@ function loadSettings() {
   settings.prefs = prefsLib.sanitize(settings.prefs);
   settings.look = lookLib.sanitize(settings.look);
   settings.notify = notifyLib.sanitize(settings.notify);
+  settings.place = placeLib.sanitize(settings.place);
+  PET = lookLib.sizePx(settings.look.size);
   settings.streak = celebrateLib.sanitizeStreak(settings.streak);
   settings.daily = dailyLib.sanitize(settings.daily);
   Object.assign(settings, lookLib.sanitizeBehaviour(settings, lookLib.BEHAVIOUR_DEFAULTS));
@@ -140,6 +144,12 @@ function applyBounds() {
 }
 
 // ---------- window ----------
+/** The opacity of the pet window (the chosen look.opacity); the list window always stays fully opaque. */
+const petOpacity = () => settings.look.opacity / 100;
+/** Always on top. `screen-saver` is the level that also stays above fullscreen apps (not above exclusive-fullscreen games). */
+function raise(w) {
+  if (w && !w.isDestroyed()) w.setAlwaysOnTop(true, settings.place.fullscreen ? 'screen-saver' : 'floating');
+}
 function makeWindow(role, bounds, extra) {
   const w = new BrowserWindow({
     ...bounds,
@@ -153,6 +163,7 @@ function makeWindow(role, bounds, extra) {
     hasShadow: false,
     show: false,
     alwaysOnTop: true,
+    opacity: role === 'pet' ? petOpacity() : 1,
     backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -162,7 +173,7 @@ function makeWindow(role, bounds, extra) {
     },
     ...extra,
   });
-  w.setAlwaysOnTop(true, 'floating');
+  raise(w);
   w.setMenuBarVisibility(false);
   w.loadFile(path.join(__dirname, 'renderer', 'index.html'), { query: { role } });
   // webContents never navigates away or opens windows
@@ -254,6 +265,7 @@ function push(opts = {}) {
     snoozeUntil: snoozed() ? settings.notify.snoozeUntil : 0,
     idleActions: !SHOT_RUN, // screenshots must not catch the pet half-way through a random yawn
     layout,
+    petSize: PET,
   };
   win.webContents.send('state', { ...snap, expanded: false, paintId: opts.petPaintId });
   if (panelWin && !panelWin.isDestroyed()) panelWin.webContents.send('state', { ...snap, expanded: panelH > 0, paintId: opts.paintId });
@@ -391,10 +403,10 @@ function showPet(animate = false, holdMs = 0) {
   petShown = true;
   stopSlide();
   if (!animate) {
-    win.setOpacity(1);
+    win.setOpacity(petOpacity());
     win.setBounds(petBounds());
     win.showInactive();
-    win.setAlwaysOnTop(true, 'floating');
+    raise(win);
     return;
   }
   // Shown off screen at opacity 0 first, so the old mood never flashes; it slides in once the new state is painted.
@@ -402,10 +414,10 @@ function showPet(animate = false, holdMs = 0) {
   win.setOpacity(0);
   win.setBounds({ x: from.x, y: from.y, width: PET, height: PET });
   win.showInactive();
-  win.setAlwaysOnTop(true, 'floating');
+  raise(win);
   push({ petPaintId: afterPaint(() => {
     if (!petShown || !win || win.isDestroyed()) return;
-    win.setOpacity(1);
+    win.setOpacity(petOpacity());
     slide(from, { x: petPos.x, y: petPos.y });
   }) });
 }
@@ -418,9 +430,35 @@ function hidePet() {
   });
 }
 
+// ---------- click-through ----------
+// While nothing needs you the pet window lets clicks fall through to what is below it. Ctrl + hover gets it back (the forwarded mouse moves tell us).
+let clickThrough = false;
+let grabbedAt = 0;
+function updateClickThrough(snap) {
+  if (!win || win.isDestroyed()) return;
+  const want = placeLib.clickThroughDecision({
+    enabled: settings.place.clickThrough && petShown,
+    attention: snap.attention,
+    panelOpen: panelH > 0,
+    dragging: Boolean(drag),
+    settingsOpen: Boolean(settingsWin && !settingsWin.isDestroyed()),
+    grabbedAt,
+    now: Date.now(),
+  });
+  if (want === clickThrough) return;
+  clickThrough = want;
+  debugLog(`click-through ${want ? 'on' : 'off'}`);
+  win.setIgnoreMouseEvents(want, want ? { forward: true } : undefined);
+}
+ipcMain.on('pet-grab', () => {
+  grabbedAt = Date.now();
+  updateClickThrough(store.snapshot());
+});
+
 /** Called after every push and once a second (the grace before hiding runs on time, not on events). */
 function updateAutoHide(snap) {
   if (!win || win.isDestroyed() || SHOT_RUN) return;
+  updateClickThrough(snap);
   const mode = settings.notify.autoHide;
   const now = Date.now();
   const sessions = snap.sessions.length;
@@ -495,6 +533,10 @@ function settingsSnapshot() {
     notifyChoices: { toast: notifyLib.TOAST, kinds: notifyLib.KINDS, remind: notifyLib.REMIND, autoHide: notifyLib.AUTO_HIDE, snooze: notifyLib.SNOOZE },
     quiet: lookLib.QUIET_ORDER.map((id) => ({ id, label: lookLib.QUIET[id].label })),
     patience: lookLib.PATIENCE,
+    sizes: lookLib.SIZE_ORDER.map((id) => ({ id, label: lookLib.SIZES[id].label, px: lookLib.SIZES[id].px })),
+    opacities: lookLib.OPACITIES,
+    place: settings.place,
+    placeChoices: { snap: placeLib.SNAP, monitor: placeLib.MONITOR },
   };
 }
 let lastSettingsSent = '';
@@ -595,7 +637,7 @@ ipcMain.on('drag-start', () => {
   if (!petShown) {
     petShown = true; // grabbed while sliding out: it stays
     lastNeedAt = Date.now();
-    win.setOpacity(1);
+    win.setOpacity(petOpacity());
   }
   const c = screen.getCursorScreenPoint();
   drag = { cx: c.x, cy: c.y, px: petPos.x, py: petPos.y };
@@ -612,6 +654,7 @@ ipcMain.on('drag-end', () => {
   if (!drag) return;
   drag = null;
   petPos = clampToDisplays(petPos.x, petPos.y);
+  petPos = placeLib.snapPosition(petPos, displayFor(petPos.x, petPos.y, PET, PET).workArea, PET, settings.place.snap, MARGIN);
   settings.x = petPos.x;
   settings.y = petPos.y;
   saveSettings();
@@ -751,10 +794,23 @@ function updatePrefs(patch) {
 ipcMain.on('set-prefs', (_e, patch) => updatePrefs(patch));
 // The pet's look (pet, colour, accessory, sound): chosen from the tray.
 function updateLook(patch) {
+  const before = settings.look;
   settings.look = lookLib.merge(settings.look, patch);
+  if (settings.look.size !== before.size) resizePet(lookLib.sizePx(before.size));
+  if (settings.look.opacity !== before.opacity && win && !win.isDestroyed() && petShown) win.setOpacity(petOpacity());
   saveSettings();
   rebuildTray();
   push();
+}
+/** A new pet size: the window is resized once (a single blink, only when the setting changes) around the pet's centre. */
+function resizePet(oldPx) {
+  stopSlide();
+  PET = lookLib.sizePx(settings.look.size);
+  const moved = placeLib.resizeAnchor(petPos, oldPx, PET);
+  petPos = clampToDisplays(moved.x, moved.y);
+  settings.x = petPos.x;
+  settings.y = petPos.y;
+  applyBounds();
 }
 /** Mute and the patience live outside settings.look; only known keys with valid values are applied. */
 function applyBehaviour(patch) {
@@ -791,6 +847,27 @@ ipcMain.on('set-notify', (_e, patch) => {
   const { toast, toastKinds, remindMin, autoHide } = patch && typeof patch === 'object' ? patch : {};
   updateNotify({ toast, toastKinds, remindMin, autoHide }); // the snooze has its own message: only its presets are accepted
 });
+/** Placement settings (snap, above fullscreen, monitors, click-through): validated, applied, saved. */
+function updatePlace(patch) {
+  const before = settings.place;
+  settings.place = placeLib.merge(settings.place, patch);
+  if (settings.place.fullscreen !== before.fullscreen) {
+    raise(win);
+    raise(panelWin);
+  }
+  if (settings.place.snap !== before.snap && settings.place.snap !== 'off' && win && !win.isDestroyed() && !drag) {
+    // switching snapping on pulls the pet in at once, so the effect is visible
+    petPos = placeLib.snapPosition(petPos, displayFor(petPos.x, petPos.y, PET, PET).workArea, PET, settings.place.snap, MARGIN);
+    settings.x = petPos.x;
+    settings.y = petPos.y;
+    applyBounds();
+  }
+  if (settings.place.monitor !== before.monitor) followState = { displayId: null, since: 0 };
+  saveSettings();
+  rebuildTray();
+  push();
+}
+ipcMain.on('set-place', (_e, patch) => updatePlace(patch));
 ipcMain.on('snooze', (_e, minutes) => setSnooze(minutes));
 ipcMain.on('preview-sound', (_e, req) => previewSound(req));
 
@@ -809,6 +886,12 @@ function buildTray() {
         { label: 'Pet', submenu: PetArt.ORDER.map((id) => ({ label: PetArt.PETS[id].label, type: 'radio', checked: settings.look.pet === id, click: () => updateLook({ pet: id }) })) },
         { label: 'Colour', submenu: PetArt.SKIN_ORDER.map((id) => ({ label: PetArt.SKINS[id].label, type: 'radio', checked: settings.look.skin === id, click: () => updateLook({ skin: id }) })) },
         { label: 'Accessory', submenu: PetArt.ACCESSORY_ORDER.map((id) => ({ label: PetArt.ACCESSORIES[id].label, type: 'radio', checked: settings.look.accessory === id, click: () => updateLook({ accessory: id }) })) },
+        { label: 'Size', submenu: lookLib.SIZE_ORDER.map((id) => ({ label: lookLib.SIZES[id].label, type: 'radio', checked: settings.look.size === id, click: () => updateLook({ size: id }) })) },
+        { label: 'Opacity', submenu: lookLib.OPACITIES.map((v) => ({ label: `${v}%`, type: 'radio', checked: settings.look.opacity === v, click: () => updateLook({ opacity: v }) })) },
+        { label: 'Snap to', submenu: placeLib.SNAP.map(({ id, label }) => ({ label, type: 'radio', checked: settings.place.snap === id, click: () => updatePlace({ snap: id }) })) },
+        { label: 'Monitors', submenu: placeLib.MONITOR.map(({ id, label }) => ({ label, type: 'radio', checked: settings.place.monitor === id, click: () => updatePlace({ monitor: id }) })) },
+        { label: 'Stay above fullscreen apps', type: 'checkbox', checked: settings.place.fullscreen, click: (i) => updatePlace({ fullscreen: i.checked }) },
+        { label: 'Click-through while nothing needs me (Ctrl + hover to grab)', type: 'checkbox', checked: settings.place.clickThrough, click: (i) => updatePlace({ clickThrough: i.checked }) },
         { label: 'Sound pack', submenu: PetSounds.PACK_ORDER.map((id) => ({ label: PetSounds.PACKS[id].label, type: 'radio', checked: settings.look.pack === id, click: () => { updateLook({ pack: id }); previewSound(); } })) },
         { label: 'Volume', submenu: PetSounds.VOLUMES.map((v) => ({ label: `${v}%`, type: 'radio', checked: settings.look.volume === v, click: () => { updateLook({ volume: v }); previewSound(); } })) },
         { label: 'Quiet hours (no sound)', submenu: lookLib.QUIET_ORDER.map((id) => ({ label: lookLib.QUIET[id].label, type: 'radio', checked: settings.look.quiet === id, click: () => updateLook({ quiet: id }) })) },

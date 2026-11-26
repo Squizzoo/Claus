@@ -165,6 +165,20 @@
   });
   let quietButtons = [];
   let patienceButtons = [];
+  let sizeButtons = [];
+  let opacityButtons = [];
+  let snapButtons = [];
+  let monitorButtons = [];
+  $('fullscreen').addEventListener('change', (e) => place({ fullscreen: e.target.checked }));
+  $('click-through').addEventListener('change', (e) => place({ clickThrough: e.target.checked }));
+  /** Placement changes go to their own message; shown at once, confirmed by the state that comes back. */
+  function place(patch) {
+    if (st) {
+      st = { ...st, place: { ...st.place, ...patch } };
+      render();
+    }
+    window.pet.setPlace(patch);
+  }
   const notifyRows = { snooze: [], toast: [], remind: [], autohide: [] };
   let kindBoxes = [];
 
@@ -225,6 +239,20 @@
 
     if (st.quiet && quietButtons.length !== st.quiet.length) quietButtons = segmented($('quiet'), st.quiet.map((q) => [q.id, q.label]), (id) => pick({ quiet: id }));
     setChecked(quietButtons, (b) => b.dataset.value === look.quiet);
+    if (st.sizes && sizeButtons.length !== st.sizes.length) sizeButtons = segmented($('size'), st.sizes.map((s) => [s.id, `${s.label} (${s.px})`]), (id) => pick({ size: id }));
+    setChecked(sizeButtons, (b) => b.dataset.value === look.size);
+    if (st.opacities && opacityButtons.length !== st.opacities.length) opacityButtons = segmented($('opacity'), st.opacities.map((v) => [v, `${v}%`]), (v) => pick({ opacity: v }));
+    setChecked(opacityButtons, (b) => b.dataset.value === String(look.opacity));
+    if (st.place && st.placeChoices) {
+      if (!snapButtons.length) {
+        snapButtons = segmented($('snap'), st.placeChoices.snap.map((x) => [x.id, x.label]), (id) => place({ snap: id }));
+        monitorButtons = segmented($('monitor'), st.placeChoices.monitor.map((x) => [x.id, x.label]), (id) => place({ monitor: id }));
+      }
+      setChecked(snapButtons, (b) => b.dataset.value === st.place.snap);
+      setChecked(monitorButtons, (b) => b.dataset.value === st.place.monitor);
+      $('fullscreen').checked = st.place.fullscreen;
+      $('click-through').checked = st.place.clickThrough;
+    }
     if (st.patience && patienceButtons.length !== st.patience.length) patienceButtons = segmented($('patience'), st.patience.map((p) => [p.min, p.label]), (min) => window.pet.setBehaviour({ impatientMin: min }));
     setChecked(patienceButtons, (b) => b.dataset.value === String(st.impatientMin));
     $('streak').checked = look.streak;
