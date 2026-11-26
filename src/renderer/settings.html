@@ -14,6 +14,7 @@
     <nav id="tabs" role="tablist" aria-label="Settings">
       <button type="button" role="tab" id="tab-btn-look" data-tab="look" aria-selected="true" aria-controls="tab-look">Appearance</button>
       <button type="button" role="tab" id="tab-btn-sound" data-tab="sound" aria-selected="false" aria-controls="tab-sound">Sound</button>
+      <button type="button" role="tab" id="tab-btn-notify" data-tab="notify" aria-selected="false" aria-controls="tab-notify">Notifications</button>
       <button type="button" role="tab" id="tab-btn-behaviour" data-tab="behaviour" aria-selected="false" aria-controls="tab-behaviour">Behaviour</button>
     </nav>
   </header>
@@ -56,6 +57,28 @@
 
         <h2>Mute</h2>
         <label class="switch"><input type="checkbox" id="muted"><span class="track"></span><span class="label">Mute all sounds</span></label>
+      </div>
+    </section>
+
+    <!-- ===== Notifications ===== -->
+    <section id="tab-notify" class="tab" role="tabpanel" aria-labelledby="tab-btn-notify" hidden>
+      <div class="col-form">
+        <p id="snooze-note" class="note" hidden></p>
+        <h2>Snooze</h2>
+        <p class="hint">Silences sounds, toasts and reminders for a while. The pet still shows its chips and badge.</p>
+        <div id="snooze" class="seg" role="radiogroup" aria-label="Snooze"></div>
+
+        <h2>Windows toasts</h2>
+        <p class="hint">A pop-up with the chat name, for when the pet is on another screen or hidden. Clicking it opens the chat. Windows keeps toasts in its notification centre.</p>
+        <div id="toast" class="seg" role="radiogroup" aria-label="Windows toasts"></div>
+
+        <h2>Repeat reminder</h2>
+        <p class="hint">A chat that keeps waiting on a question or an approval plays its sound again after this long.</p>
+        <div id="remind" class="seg" role="radiogroup" aria-label="Repeat reminder"></div>
+
+        <h2>Auto-hide</h2>
+        <p class="hint">Hide the pet when it is not needed. Clicking the tray icon shows it again for a while.</p>
+        <div id="autohide" class="seg" role="radiogroup" aria-label="Auto-hide"></div>
       </div>
     </section>
 

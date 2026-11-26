@@ -13,6 +13,8 @@ const lookLib = require('./look');
 const PetArt = require('./renderer/pets');
 const PetSounds = require('./renderer/sounds');
 const celebrateLib = require('./celebrate');
+const notifyLib = require('./notify');
+const { showToast } = require('./toast');
 
 const PORT = Number(process.env.CLAUDE_PET_PORT) || DEFAULT_PORT;
 const PET = 150; // collapsed window: the pet only
@@ -21,6 +23,7 @@ const MAX_PANEL = 480; // tallest list the window will grow to
 const MARGIN = 16;
 
 if (!app.requestSingleInstanceLock()) app.quit();
+app.setAppUserModelId('com.claus.pet'); // gives the Windows toasts a stable identity
 
 const store = new SessionStore();
 const openChat = createOpenChatWatcher();
@@ -30,7 +33,7 @@ let settingsWin = null; // the settings window (a normal window, opened by doubl
 let rebuildTray = () => {}; // set by buildTray; called when a setting changes elsewhere so the tray checkmarks stay right
 let tray = null;
 let server = null;
-let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, streak: celebrateLib.EMPTY }; // impatientMin 0 = never angry
+let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, notify: notifyLib.DEFAULTS, streak: celebrateLib.EMPTY }; // impatientMin 0 = never angry
 let petPos = { x: 0, y: 0 }; // top-left of the pet, the source of truth for position
 let panelH = 0; // extra height wanted by the list (0 = collapsed)
 let layout = { side: 'right', vertical: 'up' };
@@ -46,6 +49,7 @@ function loadSettings() {
   }
   settings.prefs = prefsLib.sanitize(settings.prefs);
   settings.look = lookLib.sanitize(settings.look);
+  settings.notify = notifyLib.sanitize(settings.notify);
   settings.streak = celebrateLib.sanitizeStreak(settings.streak);
   Object.assign(settings, lookLib.sanitizeBehaviour(settings, lookLib.BEHAVIOUR_DEFAULTS));
   applyPrefs();
@@ -183,9 +187,10 @@ function createWindow() {
 
 // The pet window always gets expanded:false (it never shows the list); the list window gets the
 // real flag. opts.paintId asks the list window to answer ('painted') once the state is on screen.
-// The sound to play now ({pack, volume}), or null while sounds are muted or it is quiet hours.
+const snoozed = () => notifyLib.isSnoozed(settings.notify.snoozeUntil, Date.now());
+// The sound to play now ({pack, volume}), or null while sounds are muted, snoozed or it is quiet hours.
 function currentSound() {
-  if (settings.muted || lookLib.isQuiet(new Date(), settings.look.quiet)) return null;
+  if (settings.muted || snoozed() || lookLib.isQuiet(new Date(), settings.look.quiet)) return null;
   return { pack: settings.look.pack, volume: settings.look.volume };
 }
 
@@ -214,18 +219,206 @@ function push(opts = {}) {
     prefs: settings.prefs,
     look: settings.look,
     finishedToday: celebrateLib.finishedToday(settings.streak, new Date()),
+    snoozeUntil: snoozed() ? settings.notify.snoozeUntil : 0,
     idleActions: !SHOT_RUN, // screenshots must not catch the pet half-way through a random yawn
     layout,
   };
-  win.webContents.send('state', { ...snap, expanded: false });
+  win.webContents.send('state', { ...snap, expanded: false, paintId: opts.petPaintId });
   if (panelWin && !panelWin.isDestroyed()) panelWin.webContents.send('state', { ...snap, expanded: panelH > 0, paintId: opts.paintId });
   sendSettings();
-  const alerts = store.takeAlerts();
+  dispatchAlerts(store.takeAlerts(), together);
+  if (together && !SHOT_RUN) celebrate(together); // shot runs trigger it themselves, so it does not land in other pictures
+  updateAutoHide(snap);
+}
+
+// ---------- alerts: sound, toast, focus and snooze ----------
+const FOCUS_RACE_MS = 300; // how long an alert waits to learn which chat you are looking at
+const TOAST_ALLOWED = !SHOT_RUN && (PORT === DEFAULT_PORT || process.env.CLAUDE_PET_TOAST === '1'); // test instances must not fill the Action Center
+
+/** Sound, toast and peek for alerts that passed snooze and focus. */
+function deliver(alerts, together) {
+  if (!alerts.length || !win || win.isDestroyed()) return;
+  const states = alerts.map((a) => a.state);
   const sound = currentSound();
   // the celebration brings its own fanfare, so the plain finished-chime is skipped when only finishes caused it
-  const states = alerts.map((a) => a.state);
-  if (alerts.length && sound && !(together && states.every((s) => s === 'done'))) win.webContents.send('alert', { states, sound });
-  if (together && !SHOT_RUN) celebrate(together); // shot runs trigger it themselves, so it does not land in other pictures
+  if (sound && !(together && states.every((s) => s === 'done'))) win.webContents.send('alert', { states, sound });
+  for (const a of alerts) if (a.reminder) debugLog(`reminder ${a.id.slice(0, 8)} ${a.state}`);
+  const fresh = alerts.filter((a) => !a.reminder && a.state !== 'overdue');
+  if (!fresh.length || !TOAST_ALLOWED) return;
+  const cursorDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  const wantToast = notifyLib.shouldToast({
+    mode: settings.notify.toast,
+    snoozed: snoozed(),
+    petVisible: petShown && win.isVisible(),
+    cursorOnPetDisplay: cursorDisplay.id === displayFor(petPos.x, petPos.y, PET, PET).id,
+  });
+  if (!wantToast) return;
+  const rows = store.snapshot().sessions;
+  for (const a of fresh) {
+    const row = rows.find((r) => r.id === a.id);
+    if (!row) continue;
+    showToast(
+      { name: row.name, folder: row.folder, state: a.state },
+      () => openFromToast(a.id),
+      () => debugLog(`toast shown ${a.id.slice(0, 8)} ${a.state}`)
+    );
+  }
+}
+
+/** A toast was clicked: open the chat, or for a chat that cannot be opened (terminal) bring up the pet and its list. */
+function openFromToast(id) {
+  debugLog(`toast clicked ${id.slice(0, 8)}`);
+  if (store.hostIdOf(id)) {
+    jumpTo(id);
+    return;
+  }
+  showPet(true, 30_000);
+  setPanel(120); // the list window then asks for its real height
+}
+
+/** Applies snooze, then focus awareness, then delivers. Never blocks push(). */
+function dispatchAlerts(alerts, together) {
+  if (!alerts.length) return;
+  if (snoozed()) {
+    debugLog(`suppressed snoozed ${alerts.length}`);
+    return;
+  }
+  if (!alerts.some((a) => store.hostIdOf(a.id))) return deliver(alerts, together);
+  // The chat open in front is only known after asking the helper; an answer that is late or missing means notify as usual.
+  const timeout = new Promise((resolve) => setTimeout(() => resolve(null), FOCUS_RACE_MS));
+  Promise.race([openChat.query(), timeout])
+    .catch(() => null)
+    .then((openHostId) => {
+      const kept = notifyLib.filterFocused(alerts, (id) => store.hostIdOf(id), openHostId);
+      for (const a of alerts) if (!kept.includes(a)) debugLog(`suppressed focused ${a.id.slice(0, 8)} ${a.state}`);
+      deliver(kept, together);
+    });
+}
+
+// ---------- auto-hide and peek ----------
+// The pet window itself never changes size. Hiding is win.hide(); showing slides it in from the screen edge nearest to it.
+// The position it slides to is always petPos, and the temporary slide positions are never saved.
+let petShown = true; // false while auto-hidden
+let manualShowUntil = 0; // the tray or a toast showed the pet by hand: leave it up for a while
+let lastNeedAt = 0;
+let slideTimer = null;
+const stopSlide = () => {
+  clearInterval(slideTimer);
+  slideTimer = null;
+};
+function slide(from, to, done) {
+  stopSlide();
+  const t0 = Date.now();
+  slideTimer = setInterval(() => {
+    if (!win || win.isDestroyed()) return stopSlide();
+    const t = (Date.now() - t0) / notifyLib.SLIDE_MS;
+    const p = notifyLib.slideAt(from, to, t);
+    win.setBounds({ x: p.x, y: p.y, width: PET, height: PET }); // same size every tick
+    if (t >= 1) {
+      stopSlide();
+      if (done) done();
+    }
+  }, 16);
+}
+const edgeOf = () => notifyLib.edgeStart(petPos, displayFor(petPos.x, petPos.y, PET, PET).workArea, PET);
+
+function showPet(animate = false, holdMs = 0) {
+  if (!win || win.isDestroyed()) return;
+  const now = Date.now();
+  if (holdMs) manualShowUntil = now + holdMs;
+  lastNeedAt = now;
+  if (petShown && win.isVisible()) return;
+  petShown = true;
+  stopSlide();
+  if (!animate) {
+    win.setOpacity(1);
+    win.setBounds(petBounds());
+    win.showInactive();
+    win.setAlwaysOnTop(true, 'floating');
+    return;
+  }
+  // Shown off screen at opacity 0 first, so the old mood never flashes; it slides in once the new state is painted.
+  const from = edgeOf();
+  win.setOpacity(0);
+  win.setBounds({ x: from.x, y: from.y, width: PET, height: PET });
+  win.showInactive();
+  win.setAlwaysOnTop(true, 'floating');
+  push({ petPaintId: afterPaint(() => {
+    if (!petShown || !win || win.isDestroyed()) return;
+    win.setOpacity(1);
+    slide(from, { x: petPos.x, y: petPos.y });
+  }) });
+}
+
+function hidePet() {
+  if (!petShown || !win || win.isDestroyed()) return;
+  petShown = false;
+  slide({ x: petPos.x, y: petPos.y }, edgeOf(), () => {
+    if (!petShown && win && !win.isDestroyed()) win.hide();
+  });
+}
+
+/** Called after every push and once a second (the grace before hiding runs on time, not on events). */
+function updateAutoHide(snap) {
+  if (!win || win.isDestroyed() || SHOT_RUN) return;
+  const mode = settings.notify.autoHide;
+  const now = Date.now();
+  const sessions = snap.sessions.length;
+  if (notifyLib.needsPet(mode, sessions, snap.attention)) lastNeedAt = now;
+  const c = screen.getCursorScreenPoint();
+  const b = petBounds();
+  const decision = notifyLib.autoHideDecision({
+    mode,
+    visible: petShown,
+    sessions,
+    attention: snap.attention,
+    panelOpen: panelH > 0,
+    dragging: Boolean(drag),
+    hovering: c.x >= b.x && c.x < b.x + b.width && c.y >= b.y && c.y < b.y + b.height,
+    settingsOpen: Boolean(settingsWin && !settingsWin.isDestroyed()),
+    manualShowUntil,
+    lastNeedAt,
+    now,
+  });
+  if (decision === 'show') {
+    debugLog(`autohide show (${mode})`);
+    showPet(true);
+  } else if (decision === 'hide') {
+    debugLog(`autohide hide (${mode})`);
+    hidePet();
+  }
+}
+
+// ---------- snooze ----------
+let snoozeTimer = null;
+/** One timer for the end of the snooze, so the tray label, the list and the settings window do not go stale. */
+function armSnooze() {
+  clearTimeout(snoozeTimer);
+  snoozeTimer = null;
+  if (!snoozed()) {
+    settings.notify.snoozeUntil = 0;
+    return;
+  }
+  snoozeTimer = setTimeout(() => {
+    debugLog('snooze ended');
+    settings.notify.snoozeUntil = 0;
+    saveSettings();
+    rebuildTray();
+    push();
+    sendSettings(true);
+  }, Math.max(0, settings.notify.snoozeUntil - Date.now()) + 50);
+}
+function updateNotify(patch) {
+  settings.notify = notifyLib.merge(settings.notify, patch);
+  armSnooze();
+  saveSettings();
+  rebuildTray();
+  push();
+}
+/** minutes: one of the presets, or 0 to end the snooze. */
+function setSnooze(minutes) {
+  debugLog(`snooze ${minutes || 'off'}`);
+  updateNotify({ snoozeUntil: notifyLib.snoozeEnd(Number(minutes)) });
 }
 
 // ---------- settings window ----------
@@ -237,6 +430,8 @@ function settingsSnapshot() {
     impatientMin: settings.impatientMin,
     finishedToday: celebrateLib.finishedToday(settings.streak, new Date()),
     quietNow: lookLib.isQuiet(new Date(), settings.look.quiet),
+    notify: { ...settings.notify, snoozeUntil: snoozed() ? settings.notify.snoozeUntil : 0 },
+    notifyChoices: { toast: notifyLib.TOAST, remind: notifyLib.REMIND, autoHide: notifyLib.AUTO_HIDE, snooze: notifyLib.SNOOZE },
     quiet: lookLib.QUIET_ORDER.map((id) => ({ id, label: lookLib.QUIET[id].label })),
     patience: lookLib.PATIENCE,
   };
@@ -335,6 +530,7 @@ ipcMain.on('open-settings', () => {
 });
 
 ipcMain.on('drag-start', () => {
+  stopSlide();
   const c = screen.getCursorScreenPoint();
   drag = { cx: c.x, cy: c.y, px: petPos.x, py: petPos.y };
   if (panelH > 0) setPanel(0);
@@ -449,6 +645,11 @@ function previewSound(req) {
 }
 ipcMain.on('set-look', (_e, patch) => updateLook(patch));
 ipcMain.on('set-behaviour', (_e, patch) => applyBehaviour(patch));
+ipcMain.on('set-notify', (_e, patch) => {
+  const { toast, remindMin, autoHide } = patch && typeof patch === 'object' ? patch : {};
+  updateNotify({ toast, remindMin, autoHide }); // the snooze has its own message: only its presets are accepted
+});
+ipcMain.on('snooze', (_e, minutes) => setSnooze(minutes));
 ipcMain.on('preview-sound', (_e, req) => previewSound(req));
 
 // ---------- tray ----------
@@ -456,11 +657,12 @@ function buildTray() {
   const img = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'tray.png'));
   tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img);
   tray.setToolTip('Claus');
-  rebuildTray = () =>
+  rebuildTray = () => {
+    tray.setToolTip(snoozed() ? `Claus (snoozed until ${notifyLib.clock(settings.notify.snoozeUntil)})` : 'Claus');
     tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: 'Settings...', click: () => openSettings() },
-        { label: 'Show pet', click: () => win && (win.showInactive(), win.setAlwaysOnTop(true, 'floating')) },
+        { label: 'Show pet', click: () => showPet(false, 30_000) },
         { label: 'Reset position', click: () => { petPos = defaultPos(); settings.x = petPos.x; settings.y = petPos.y; saveSettings(); applyBounds(); push(); } },
         { label: 'Pet', submenu: PetArt.ORDER.map((id) => ({ label: PetArt.PETS[id].label, type: 'radio', checked: settings.look.pet === id, click: () => updateLook({ pet: id }) })) },
         { label: 'Colour', submenu: PetArt.SKIN_ORDER.map((id) => ({ label: PetArt.SKINS[id].label, type: 'radio', checked: settings.look.skin === id, click: () => updateLook({ skin: id }) })) },
@@ -474,13 +676,21 @@ function buildTray() {
           submenu: lookLib.PATIENCE.map(({ min, label }) => ({ label, type: 'radio', checked: settings.impatientMin === min, click: () => applyBehaviour({ impatientMin: min }) })),
         },
         { label: 'Show chats finished today', type: 'checkbox', checked: settings.look.streak, click: (i) => updateLook({ streak: i.checked }) },
+        {
+          label: snoozed() ? `Snoozed until ${notifyLib.clock(settings.notify.snoozeUntil)} - Resume` : 'Snooze',
+          ...(snoozed() ? { click: () => setSnooze(0) } : { submenu: notifyLib.SNOOZE.map(({ min, label }) => ({ label, click: () => setSnooze(min) })) }),
+        },
+        { label: 'Toasts', submenu: notifyLib.TOAST.map(({ id, label }) => ({ label, type: 'radio', checked: settings.notify.toast === id, click: () => updateNotify({ toast: id }) })) },
+        { label: 'Repeat reminder', submenu: notifyLib.REMIND.map(({ min, label }) => ({ label, type: 'radio', checked: settings.notify.remindMin === min, click: () => updateNotify({ remindMin: min }) })) },
+        { label: 'Auto-hide', submenu: notifyLib.AUTO_HIDE.map(({ id, label }) => ({ label, type: 'radio', checked: settings.notify.autoHide === id, click: () => updateNotify({ autoHide: id }) })) },
         { label: 'Clear finished', click: () => { store.dismissAllDone(); push(); } },
         { type: 'separator' },
         { label: 'Quit', click: () => app.quit() },
       ])
     );
+  };
   rebuildTray();
-  tray.on('click', () => win && win.showInactive());
+  tray.on('click', () => showPet(false, 30_000));
 }
 
 // ---------- boot ----------
@@ -508,7 +718,13 @@ app.whenReady().then(async () => {
   };
   poll();
   setInterval(poll, 2000);
-  setInterval(() => store.tickOverdue() && push(), 5000); // the pet turns angry when you keep it waiting
+  setInterval(() => {
+    const overdue = store.tickOverdue(); // the pet turns angry when you keep it waiting
+    const reminded = !snoozed() && store.tickReminders(settings.notify.remindMin * 60_000); // and chimes again every few minutes
+    if (overdue || reminded) push();
+  }, 5000);
+  setInterval(() => updateAutoHide(store.snapshot()), 1000); // the grace before the pet hides runs on time, not on events
+  armSnooze(); // a snooze that survived a restart still has to end
   // the "finished today" number starts again at midnight even when nothing else happens
   let shownDay = celebrateLib.dayKey(new Date());
   setInterval(() => {
@@ -565,7 +781,7 @@ app.whenReady().then(async () => {
   if (shot) require('./shot').run(win, shot.slice(7), { store, setPanel, push, setPrefs: updatePrefs, setLook: updateLook, celebrate, openSettings, panelWin: () => panelWin });
 });
 
-app.on('second-instance', () => win && win.showInactive());
+app.on('second-instance', () => showPet(false, 30_000));
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => {
   openChat.stop();

@@ -81,6 +81,11 @@ function filterFocused(alerts, hostIdOf, openHostId) {
   return alerts.filter((a) => hostIdOf(a.id) !== openHostId);
 }
 
+/** Does the pet have a reason to be seen right now? Any chat for `empty`, a chat that needs you for `peek`. */
+function needsPet(mode, sessions, attention) {
+  return mode === 'empty' ? sessions > 0 : mode === 'peek' ? attention > 0 : true;
+}
+
 /**
  * Should the pet be on screen? `mode` is the auto-hide setting. Returns 'show', 'hide' or 'keep' (leave it as it is).
  * `needed` is true while the pet has a reason to be seen: any chat for `empty`, a chat that needs you for `peek`.
@@ -88,8 +93,7 @@ function filterFocused(alerts, hostIdOf, openHostId) {
  */
 function autoHideDecision({ mode, visible, sessions, attention, panelOpen, dragging, hovering, settingsOpen, manualShowUntil = 0, lastNeedAt = 0, now }) {
   if (mode !== 'empty' && mode !== 'peek') return visible ? 'keep' : 'show';
-  const needed = mode === 'empty' ? sessions > 0 : attention > 0;
-  if (needed) return visible ? 'keep' : 'show';
+  if (needsPet(mode, sessions, attention)) return visible ? 'keep' : 'show';
   if (!visible) return 'keep';
   if (panelOpen || dragging || hovering || settingsOpen || now < manualShowUntil) return 'keep';
   return now - lastNeedAt >= HIDE_GRACE_MS ? 'hide' : 'keep';
@@ -126,5 +130,5 @@ function clock(ms) {
 module.exports = {
   DEFAULTS, TOAST, REMIND, AUTO_HIDE, SNOOZE, MAX_SNOOZE_MS, HIDE_GRACE_MS, SLIDE_MS,
   choices, sanitize, merge, sanitizeSnooze, isSnoozed, snoozeEnd,
-  shouldToast, filterFocused, autoHideDecision, edgeStart, slideAt, clock,
+  shouldToast, filterFocused, needsPet, autoHideDecision, edgeStart, slideAt, clock,
 };

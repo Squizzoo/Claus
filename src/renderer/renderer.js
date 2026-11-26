@@ -299,9 +299,10 @@
 
     const view = PetView.buildView(state.sessions, state.prefs, query);
     const today = state.look && state.look.streak && state.finishedToday > 0 ? `✓ ${state.finishedToday} today` : '';
-    const waiting = `${state.attention} waiting · ${state.sessions.length} open${today ? ' · ' + today : ''}`;
+    const snoozed = state.snoozeUntil > 0 ? `snoozed until ${new Date(state.snoozeUntil).toTimeString().slice(0, 5)}` : '';
+    const waiting = `${state.attention} waiting · ${state.sessions.length} open${today ? ' · ' + today : ''}${snoozed ? ' · ' + snoozed : ''}`;
     count.textContent = !state.sessions.length ? today : query.trim() ? `${view.shown} of ${state.sessions.length} shown` : waiting;
-    count.title = today ? `${state.finishedToday} chats finished today` : '';
+    count.title = [today ? `${state.finishedToday} chats finished today` : '', snoozed ? `Sounds, toasts and reminders are ${snoozed}` : ''].filter(Boolean).join(' | ');
     renderBars(state, view);
     empty.hidden = view.shown > 0;
     list.hidden = view.shown === 0;
