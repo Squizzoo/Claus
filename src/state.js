@@ -78,6 +78,7 @@ class SessionStore {
     this.sessions = new Map();
     this.registrySynced = false;
     this.alerts = []; // pending {id, state} for the UI to chime
+    this.finished = []; // pending {id, muted, at}: every chat that just finished, muted or not (for the day counter and the celebration)
     this.impatientMs = impatientMs; // 0 = never gets angry
     this.undoMs = undoMs;
     this.mutedIds = new Set();
@@ -145,6 +146,7 @@ class SessionStore {
     s.lateNotified = false;
     s.hidden = false; // a hidden idle chat comes back as soon as it does anything
     if (ATTENTION.has(state) && !this._isMuted(s)) this.alerts.push({ id: s.id, state });
+    if (state === 'done') this.finished.push({ id: s.id, muted: this._isMuted(s), at: this.now() });
     return true;
   }
 
@@ -315,6 +317,13 @@ class SessionStore {
     const a = this.alerts;
     this.alerts = [];
     return a;
+  }
+
+  /** The chats that finished since the last call: {id, muted, at}. */
+  takeFinished() {
+    const f = this.finished;
+    this.finished = [];
+    return f;
   }
 
   snapshot() {

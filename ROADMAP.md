@@ -27,18 +27,21 @@ Small changes with a big payoff now that the chat list is getting long.
       3 min ago"), and a compact density that shows only a short age. View options (group, sort,
       density) sit behind the ⋯ button next to the search box and are remembered.
 
-## Phase 2: Pet personality
+## Phase 2: Pet personality **[done]**
 
-- [ ] **Pet picker.** Cat, dog, blob, robot, ghost and so on. First build a
-      mood-to-sprite abstraction: each pet supplies art for sleeping, calm,
-      working, happy, question, approval and angry. Selectable from the tray or
-      the settings panel.
-- [ ] **Colour and skin variants.** Fur colours and small accessories (hat, bow).
-- [ ] **Idle animations.** Blinking, stretching, tail wag, yawning.
-- [ ] **Celebration.** Confetti or sparkles when several chats finish together,
-      plus an optional "finished today" streak counter.
-- [ ] **Sound packs.** Different chime per kind (`!`, `?`, `✓`), volume control,
-      quiet hours / Do Not Disturb.
+- [x] **Pet picker.** 16 pets (cat, dog, bunny, bird, penguin, owl, dragon, sprout, blob, ghost,
+      robot, alien, car, sun, moon, cloud) on a mood-to-sprite abstraction: a pet supplies its body
+      art and face measurements, a shared generator draws every mood. Picked from the tray; a
+      settings panel comes in Phase 5.
+- [x] **Colour and skin variants.** Ten colours that keep the flushed and angry faces, and a
+      bow, top hat, crown or party hat.
+- [x] **Idle animations.** Blinking and breathing, plus a random stretch, yawn, look-around or
+      tail wag every 8 to 20 seconds while calm.
+- [x] **Celebration.** Confetti, sparkles and a hop when three chats finish within a minute,
+      plus a "finished today" counter in the list header.
+- [x] **Sound packs.** Chime, Soft, Retro and Pluck with a tune per kind (`!`, `?`, `✓`, angry,
+      celebration), volume 25-100 %, and quiet hours (sound only). Do Not Disturb for a set
+      time is the Snooze item of Phase 3.
 
 ## Phase 3: Smarter notifications
 
@@ -88,7 +91,7 @@ Small changes with a big payoff now that the chat list is getting long.
 ## Suggested order
 
 1. ~~Phase 1: x check, search, project grouping~~ (done, with the rest of the phase).
-2. Phase 2: pet-picker abstraction (everything pet-related builds on it).
+2. ~~Phase 2: pet-picker abstraction and the rest of pet personality~~ (done).
 3. Phase 3: toasts and snooze.
 4. Phase 5: settings panel, once there are enough options to need one.
 5. Packaging, when the feature set feels right.
