@@ -443,3 +443,46 @@ test('token totals ride along in the snapshot and only report real changes', () 
   assert.equal(st.setUsage('unknown-chat', u), false);
   assert.deepEqual([...st.ids()], [SID]);
 });
+
+test('waits on you and work are timed for the daily summary', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  c.advance(60_000); // working
+  st.applyHook(hook('PermissionRequest', { tool_name: 'Bash' }));
+  c.advance(30_000); // waiting on you
+  st.applyHook(hook('PostToolUse', { tool_name: 'Bash' }));
+  c.advance(10_000); // working again
+  st.applyHook(hook('Stop'));
+  assert.deepEqual(st.takeTimes(), { waits: [30_000], work: [70_000] });
+  assert.deepEqual(st.takeTimes(), { waits: [], work: [] }); // taken once
+});
+
+test('a wait that never ends in a resume is not recorded, and muted chats never count as waiting', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  st.applyHook(hook('PreToolUse', { tool_name: 'AskUserQuestion' }));
+  c.advance(60 * 60_000);
+  st.applyHook(hook('Stop')); // the question was cancelled and the chat finished
+  assert.deepEqual(st.takeTimes().waits, []);
+
+  st.setMuted({ ids: [SID] });
+  st.applyHook(hook('UserPromptSubmit'));
+  st.applyHook(hook('PermissionRequest', { tool_name: 'Bash' }));
+  c.advance(20_000);
+  st.applyHook(hook('PostToolUse', { tool_name: 'Bash' }));
+  assert.deepEqual(st.takeTimes().waits, []); // muted: not counted as waiting
+  c.advance(5_000);
+  st.applyHook(hook('Stop'));
+  assert.deepEqual(st.takeTimes().work, [5_000]); // but the wait is still taken off the work
+});
+
+test('dismissing a finished chat does not count as work', () => {
+  const st = new SessionStore();
+  st.applyHook(hook('UserPromptSubmit'));
+  st.applyHook(hook('Stop'));
+  st.takeTimes();
+  st.dismissRow(SID);
+  assert.deepEqual(st.takeTimes(), { waits: [], work: [] });
+});

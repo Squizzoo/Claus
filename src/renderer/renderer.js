@@ -340,7 +340,9 @@
     const snoozed = state.snoozeUntil > 0 ? `snoozed until ${new Date(state.snoozeUntil).toTimeString().slice(0, 5)}` : '';
     const waiting = `${state.attention} waiting · ${state.sessions.length} open${today ? ' · ' + today : ''}${snoozed ? ' · ' + snoozed : ''}`;
     count.textContent = !state.sessions.length ? today : query.trim() ? `${view.shown} of ${state.sessions.length} shown` : waiting;
-    count.title = [today ? `${state.finishedToday} chats finished today` : '', snoozed ? `Sounds, toasts and reminders are ${snoozed}` : ''].filter(Boolean).join(' | ');
+    const d = state.daily;
+    const waited = d && d.waits ? `Today ${d.waits} wait${d.waits === 1 ? '' : 's'} on you, longest ${PetView.formatDuration(d.longestMs)}, ${PetView.formatDuration(d.waitMs)} in all` : '';
+    count.title = [today ? `${state.finishedToday} chats finished today` : '', waited, snoozed ? `Sounds, toasts and reminders are ${snoozed}` : ''].filter(Boolean).join(' | ');
     renderBars(state, view);
     empty.hidden = view.shown > 0;
     list.hidden = view.shown === 0;

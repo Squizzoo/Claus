@@ -41,6 +41,24 @@
   }
   tabButtons.forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
 
+  // ---------- today's numbers ----------
+  /** A length of time for the Today tab: `-` for none, `40s`, `6m`, `1h 05m`. */
+  function lengthText(ms) {
+    const s = Math.round((ms || 0) / 1000);
+    if (s <= 0) return '-';
+    if (s < 60) return `${s}s`;
+    const m = Math.round(s / 60);
+    return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+  }
+  function renderToday(d) {
+    if (!d) return;
+    $('st-finished').textContent = String(d.finished);
+    $('st-waits').textContent = String(d.waits);
+    $('st-wait-total').textContent = lengthText(d.waitMs);
+    $('st-wait-longest').textContent = lengthText(d.longestMs);
+    $('st-work').textContent = lengthText(d.workMs);
+  }
+
   // ---------- one-time construction ----------
   const gallery = $('gallery');
   const cards = PetArt.ORDER.map((id) => {
@@ -211,6 +229,7 @@
     setChecked(patienceButtons, (b) => b.dataset.value === String(st.impatientMin));
     $('streak').checked = look.streak;
     $('show-tokens').checked = look.showTokens;
+    renderToday(st.daily);
 
     const nt = st.notify;
     const ch = st.notifyChoices;

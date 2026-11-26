@@ -16,6 +16,7 @@
       <button type="button" role="tab" id="tab-btn-sound" data-tab="sound" aria-selected="false" aria-controls="tab-sound">Sound</button>
       <button type="button" role="tab" id="tab-btn-notify" data-tab="notify" aria-selected="false" aria-controls="tab-notify">Notifications</button>
       <button type="button" role="tab" id="tab-btn-behaviour" data-tab="behaviour" aria-selected="false" aria-controls="tab-behaviour">Behaviour</button>
+      <button type="button" role="tab" id="tab-btn-today" data-tab="today" aria-selected="false" aria-controls="tab-today">Today</button>
     </nav>
   </header>
 
@@ -98,6 +99,22 @@
         <h2>Tokens per chat</h2>
         <p class="hint">A token count on each row, read from the chat's own transcript file. Only the counters are read, never the text.</p>
         <label class="switch"><input type="checkbox" id="show-tokens"><span class="track"></span><span class="label">Show tokens on each row</span></label>
+      </div>
+    </section>
+
+    <!-- ===== Today: the day's numbers ===== -->
+    <section id="tab-today" class="tab" role="tabpanel" aria-labelledby="tab-btn-today" hidden>
+      <div class="col-form">
+        <h2>Today</h2>
+        <p class="hint">Kept on this computer: only the date and these numbers are saved, never a chat name. It starts again at midnight.</p>
+        <dl id="today-stats" class="stats">
+          <div><dt>Chats finished</dt><dd id="st-finished">0</dd></div>
+          <div><dt>Times a chat waited on you</dt><dd id="st-waits">0</dd></div>
+          <div><dt>Total waiting time</dt><dd id="st-wait-total">-</dd></div>
+          <div><dt>Longest wait</dt><dd id="st-wait-longest">-</dd></div>
+          <div><dt>Time Claude spent working</dt><dd id="st-work">-</dd></div>
+        </dl>
+        <p class="hint">A wait counts once the chat runs again. Waits longer than 4 hours are skipped: that is a chat you walked away from.</p>
       </div>
     </section>
   </main>

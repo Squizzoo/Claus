@@ -87,6 +87,7 @@ class SessionStore {
     this.mutedProjects = new Set();
     this.lastClear = null; // {at, items} of the last x / bulk clear, for undo
     this.viewing = null; // {hostId, reports}: the chat open in the foreground Claude window
+    this.times = { waits: [], work: [] }; // pending lengths in ms: waits on you that ended in a resume, and finished stretches of work
     this.activity = false; // something moved "last active" without changing any state (a tool ran, the registry ticked)
   }
 
@@ -151,6 +152,7 @@ class SessionStore {
         state: 'idle',
         since: this.now(),
         turnStart: 0, // when the current turn began (kept across questions and approvals); 0 while idle or done
+        turnWaitMs: 0, // how much of this turn was spent waiting on you
         lastHookAt: 0,
         hostSessionId: null,
         entrypoint: null,
@@ -166,9 +168,24 @@ class SessionStore {
   _set(s, state) {
     if (s.state === state) return false;
     const before = s.state;
+    const now = this.now();
+    // A wait only counts when the chat then ran again: a cancelled question that is left alone says nothing about you.
+    if (WAITING_ON_YOU.has(before) && state === 'working') {
+      s.turnWaitMs += now - s.since;
+      if (!this._isMuted(s)) this.times.waits.push(now - s.since);
+    }
+    // A turn ends when the chat finishes or goes idle: the time it spent working is the turn minus what it waited on you.
+    if (s.turnStart && (state === 'idle' || state === 'done')) {
+      this.times.work.push(Math.max(0, now - s.turnStart - s.turnWaitMs));
+    }
     s.state = state;
-    if (state === 'working' && (before === 'idle' || before === 'done' || !s.turnStart)) s.turnStart = this.now();
-    else if (state === 'idle' || state === 'done') s.turnStart = 0;
+    if (state === 'working' && (before === 'idle' || before === 'done' || !s.turnStart)) {
+      s.turnStart = now;
+      s.turnWaitMs = 0;
+    } else if (state === 'idle' || state === 'done') {
+      s.turnStart = 0;
+      s.turnWaitMs = 0;
+    }
     s.since = this.now();
     s.lateNotified = false;
     s.remindedAt = 0;
@@ -207,6 +224,13 @@ class SessionStore {
 
   ids() {
     return new Set(this.sessions.keys());
+  }
+
+  /** The lengths (ms) of waits on you and of work that ended since the last call: {waits, work}. */
+  takeTimes() {
+    const t = this.times;
+    this.times = { waits: [], work: [] };
+    return t;
   }
 
   /** True once after a hook or registry update that only moved "last active": the UI may refresh, but need not rush. */

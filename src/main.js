@@ -12,7 +12,9 @@ const prefsLib = require('./prefs');
 const lookLib = require('./look');
 const PetArt = require('./renderer/pets');
 const PetSounds = require('./renderer/sounds');
+const PetView = require('./renderer/view');
 const celebrateLib = require('./celebrate');
+const dailyLib = require('./daily');
 const notifyLib = require('./notify');
 const { showToast } = require('./toast');
 const { createTranscriptReader } = require('./transcript');
@@ -35,7 +37,7 @@ let settingsWin = null; // the settings window (a normal window, opened by doubl
 let rebuildTray = () => {}; // set by buildTray; called when a setting changes elsewhere so the tray checkmarks stay right
 let tray = null;
 let server = null;
-let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, notify: notifyLib.DEFAULTS, streak: celebrateLib.EMPTY }; // impatientMin 0 = never angry
+let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, notify: notifyLib.DEFAULTS, streak: celebrateLib.EMPTY, daily: dailyLib.EMPTY }; // impatientMin 0 = never angry
 let petPos = { x: 0, y: 0 }; // top-left of the pet, the source of truth for position
 let panelH = 0; // extra height wanted by the list (0 = collapsed)
 let layout = { side: 'right', vertical: 'up' };
@@ -53,6 +55,7 @@ function loadSettings() {
   settings.look = lookLib.sanitize(settings.look);
   settings.notify = notifyLib.sanitize(settings.notify);
   settings.streak = celebrateLib.sanitizeStreak(settings.streak);
+  settings.daily = dailyLib.sanitize(settings.daily);
   Object.assign(settings, lookLib.sanitizeBehaviour(settings, lookLib.BEHAVIOUR_DEFAULTS));
   applyPrefs();
 }
@@ -197,6 +200,10 @@ function currentSound() {
 }
 
 const celebrator = celebrateLib.createCelebrator();
+/** Today's finished chats, waits and work for the settings window, the tray and the header tooltip. */
+const todaySummary = () => dailyLib.summary(settings.daily, celebrateLib.finishedToday(settings.streak, new Date()), new Date());
+/** A length for the tray: `6m`, `1h 05m`. */
+const clockLength = (ms) => (ms < 60_000 ? '0m' : PetView.formatDuration(Math.floor(ms / 60_000) * 60_000).replace(/ dd?s$/, ''));
 /** Counts the chats that just finished (the day counter) and says how many finished together, if that is a celebration. */
 function collectFinished() {
   let together = 0;
@@ -205,7 +212,13 @@ function collectFinished() {
     settings.streak = celebrateLib.bumpStreak(settings.streak, new Date(e.at));
     if (!e.muted) together = Math.max(together, celebrator.record(e.at));
   }
-  if (finished.length) saveSettings();
+  const times = store.takeTimes();
+  for (const ms of times.waits) settings.daily = dailyLib.recordWait(settings.daily, ms, new Date());
+  for (const ms of times.work) settings.daily = dailyLib.recordWork(settings.daily, ms, new Date());
+  if (finished.length || times.waits.length || times.work.length) {
+    saveSettings();
+    rebuildTray(); // the tray shows today's numbers
+  }
   return together;
 }
 function celebrate(count) {
@@ -235,6 +248,7 @@ function push(opts = {}) {
     prefs: settings.prefs,
     look: settings.look,
     finishedToday: celebrateLib.finishedToday(settings.streak, new Date()),
+    daily: todaySummary(),
     snoozeUntil: snoozed() ? settings.notify.snoozeUntil : 0,
     idleActions: !SHOT_RUN, // screenshots must not catch the pet half-way through a random yawn
     layout,
@@ -472,6 +486,7 @@ function settingsSnapshot() {
     muted: settings.muted,
     impatientMin: settings.impatientMin,
     finishedToday: celebrateLib.finishedToday(settings.streak, new Date()),
+    daily: todaySummary(),
     quietNow: lookLib.isQuiet(new Date(), settings.look.quiet),
     notify: { ...settings.notify, snoozeUntil: snoozed() ? settings.notify.snoozeUntil : 0 },
     notifyChoices: { toast: notifyLib.TOAST, kinds: notifyLib.KINDS, remind: notifyLib.REMIND, autoHide: notifyLib.AUTO_HIDE, snooze: notifyLib.SNOOZE },
@@ -723,6 +738,7 @@ function buildTray() {
           label: 'Gets angry after waiting',
           submenu: lookLib.PATIENCE.map(({ min, label }) => ({ label, type: 'radio', checked: settings.impatientMin === min, click: () => applyBehaviour({ impatientMin: min }) })),
         },
+        { label: `Today: ${todaySummary().finished} finished${todaySummary().waits ? ` · longest wait ${clockLength(todaySummary().longestMs)}` : ''}`, enabled: false },
         { label: 'Show chats finished today', type: 'checkbox', checked: settings.look.streak, click: (i) => updateLook({ streak: i.checked }) },
         {
           label: snoozed() ? `Snoozed until ${notifyLib.clock(settings.notify.snoozeUntil)} - Resume` : 'Snooze',
