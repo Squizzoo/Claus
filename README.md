@@ -312,8 +312,9 @@ POST to the hook receiver by hand disappear again after about a minute (they are
 - The `claude://code/continue?session=…` route is an internal of Claude Desktop
   (verified in 6.28899.6.0), not a documented API. If an update changes it, fix
   `src/jump.js`; nothing else depends on it. The pet checks itself: after a jump it asks which chat Claude Desktop shows
-  (a small PowerShell helper reads the open chat from Claude's window), and after two misses in a row the tray and the
-  *System* tab warn that opening chats may be broken; after a Claude Desktop update it says "not checked yet" until a jump works.
+  (a small PowerShell helper reads the open chat from Claude's window). Only a *different* chat showing up counts as a miss
+  (the helper saying "none" proves nothing right after Claude starts), and after two misses in a row the tray and the *System*
+  tab warn that opening chats may be broken. After a Claude Desktop update the *System* tab says "not checked yet" until a jump works.
   The same helper marks a finished chat as seen when you open it yourself. It needs the chat view to be in front and Windows'
   UI Automation to see inside Claude (Claude Desktop 6.28899.6.0 shows two web documents; both are read).
 - An interrupted chat (Esc) fires no `Stop`. The pet notices through the registry: a working chat whose registry entry turned

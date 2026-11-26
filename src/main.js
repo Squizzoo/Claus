@@ -898,7 +898,6 @@ async function jumpTo(id) {
 // Claude Desktop can change its claude://code/continue route in an update. After a jump, look at which chat the foreground Claude
 // window shows: two misses in a row put a warning in the tray (jump-health.js decides, this only looks).
 let jumpHealth = jumpHealthLib.EMPTY;
-let canReadChat = false; // the helper has read a chat id from Claude at least once (see jumpHealthLib.outcome)
 const JUMP_CHECK_TRIES = 8;
 const JUMP_CHECK_GAP_MS = 500;
 async function verifyJump(wanted, focused) {
@@ -912,10 +911,9 @@ async function verifyJump(wanted, focused) {
     seen.push(got === undefined ? 'busy' : got ? got.slice(0, 14) : 'none');
     if (got === undefined) continue; // the helper was busy with the one-second loop: ask again
     answer = got;
-    if (got) canReadChat = true;
     if (got === wanted) break;
   }
-  const verdict = jumpHealthLib.outcome({ focused, openHostId: answer, wanted, canRead: canReadChat });
+  const verdict = jumpHealthLib.outcome({ focused, openHostId: answer, wanted });
   debugLog(`jump check: ${verdict ? (verdict.ok ? 'ok' : 'miss') : 'no verdict'} (answers: ${seen.join(' ')})`);
   if (!verdict) return;
   const before = jumpHealthLib.status(jumpHealth);
@@ -1077,6 +1075,7 @@ function resizePet(oldPx) {
   PET = lookLib.sizePx(settings.look.size);
   const moved = placeLib.resizeAnchor(petPos, oldPx, PET);
   petPos = clampToDisplays(moved.x, moved.y);
+  petPos = placeLib.snapPosition(petPos, displayFor(petPos.x, petPos.y, PET, PET).workArea, PET, settings.place.snap, MARGIN); // a pet snapped to a corner stays in it
   settings.x = petPos.x;
   settings.y = petPos.y;
   applyBounds();
@@ -1149,15 +1148,13 @@ ipcMain.on('snooze', (_e, minutes) => setSnooze(minutes));
 ipcMain.on('preview-sound', (_e, req) => previewSound(req));
 
 // ---------- tray ----------
-const JUMP_WARNINGS = {
-  broken: 'Opening a chat from the list no longer seems to work (Claude Desktop may have changed)',
-  unverified: 'Claude Desktop was updated: opening chats has not been checked yet',
-};
+const JUMP_WARNING = 'Opening a chat from the list no longer seems to work (Claude Desktop may have changed)';
 /** Tray entries about updates: nothing at all for builds that cannot update. */
 function updateTrayItems() {
   if (!caps().updates) return [];
   const u = updater.state();
-  const items = [{ label: updaterLib.describe(u) || 'Check for updates', enabled: false }];
+  // A line only while there is something to act on or to wait for; a failed check (no release yet, no network) stays in the System tab.
+  const items = ['available', 'downloading', 'ready'].includes(u.status) ? [{ label: updaterLib.describe(u), enabled: false }] : [];
   if (u.status === 'available') items.push({ label: 'Download the update', click: () => updater.download() });
   else if (u.status === 'ready') items.push({ label: 'Restart to update', click: () => updater.install() });
   else if (u.status !== 'checking' && u.status !== 'downloading') items.push({ label: 'Check for updates', click: () => updater.check() });
@@ -1168,8 +1165,8 @@ function buildTray() {
   tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img);
   tray.setToolTip('Claus');
   rebuildTray = () => {
-    const jumpStatus = jumpHealthLib.status(jumpHealth);
-    const warning = JUMP_WARNINGS[jumpStatus];
+    // only a route that seems to be broken is worth a tray warning; "Claude was updated, not checked yet" is a note in the System tab
+    const warning = jumpHealthLib.status(jumpHealth) === 'broken' ? JUMP_WARNING : '';
     tray.setToolTip(`${snoozed() ? `Claus (snoozed until ${notifyLib.clock(settings.notify.snoozeUntil)})` : 'Claus'}${warning ? `\n${warning}` : ''}`);
     tray.setContextMenu(
       Menu.buildFromTemplate([
@@ -1294,7 +1291,6 @@ app.whenReady().then(async () => {
       try {
         const hostId = await openChat.query();
         if (hostId === undefined) return; // the helper was busy with another question: no answer, not "no chat open"
-        if (hostId) canReadChat = true;
         if (hostId !== lastSeen) {
           lastSeen = hostId;
           debugLog(`open chat in Claude: ${hostId ? hostId.slice(0, 14) : 'none'}`);
