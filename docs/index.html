@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claus - a desktop pet for your Claude chats</title>
+<meta name="description" content="Claus is a small desktop pet for Windows that tells you when a Claude chat has finished, asked a question or needs your approval. Click it to jump straight to the chat.">
+<meta property="og:title" content="Claus - a desktop pet for your Claude chats">
+<meta property="og:description" content="Know when Claude is done, without watching the window. A small pet that lives on your desktop.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://squizzoo.github.io/Claus/">
+<meta property="og:image" content="https://squizzoo.github.io/Claus/assets/social.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/png" href="assets/icon.png">
+<style>
+:root {
+  --bg: #f6f4ef;
+  --bg-soft: #ece8df;
+  --card: #ffffff;
+  --text: #1d1b17;
+  --muted: #6a645a;
+  --line: #ddd7ca;
+  --accent: #d9732b;
+  --accent-ink: #ffffff;
+  --blue: #3a7bd5;
+  --green: #2f9e5b;
+  --red: #d64541;
+  --shadow: 0 10px 30px rgba(40, 30, 10, .10);
+  --stage: #e7e2d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17161a;
+    --bg-soft: #1f1e23;
+    --card: #232227;
+    --text: #f1eee8;
+    --muted: #a39d92;
+    --line: #34323a;
+    --accent: #f0903f;
+    --accent-ink: #1b1209;
+    --shadow: 0 10px 30px rgba(0, 0, 0, .45);
+    --stage: #2b2a31;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #17161a;
+  --bg-soft: #1f1e23;
+  --card: #232227;
+  --text: #f1eee8;
+  --muted: #a39d92;
+  --line: #34323a;
+  --accent: #f0903f;
+  --accent-ink: #1b1209;
+  --shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  --stage: #2b2a31;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--blue); }
+img { max-width: 100%; height: auto; display: block; }
+.wrap { width: min(1080px, 100% - 32px); margin: 0 auto; }
+
+/* nav */
+nav { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+nav .wrap { display: flex; align-items: center; gap: 20px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 19px; color: var(--text); text-decoration: none; }
+.brand img { width: 28px; height: 28px; }
+.links { margin-left: auto; display: flex; align-items: center; gap: 20px; }
+.links a { color: var(--muted); text-decoration: none; font-size: 15px; }
+.links a:hover { color: var(--text); }
+@media (max-width: 720px) { .links a.hide-sm { display: none; } }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 22px; border-radius: 12px; font-weight: 600; text-decoration: none; border: 1px solid var(--line); color: var(--text); background: var(--card); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent); }
+.btn:hover { transform: translateY(-1px); }
+.btn.small { padding: 8px 14px; font-size: 15px; border-radius: 10px; }
+
+/* hero */
+.hero { padding: 72px 0 40px; text-align: center; }
+.hero h1 { font-size: clamp(36px, 6vw, 60px); line-height: 1.1; margin: 0 0 18px; letter-spacing: -.02em; }
+.hero h1 span { color: var(--accent); }
+.hero p.lead { font-size: clamp(18px, 2.4vw, 22px); color: var(--muted); max-width: 640px; margin: 0 auto 30px; }
+.cta { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; }
+.fine { color: var(--muted); font-size: 14px; margin-top: 14px; }
+.stage { margin: 48px auto 0; padding: 24px 12px 8px; background: var(--stage); border-radius: 24px; box-shadow: var(--shadow); display: flex; justify-content: center; flex-wrap: wrap; gap: 0; max-width: 1000px; }
+.stage figure { margin: 0; width: 138px; text-align: center; }
+.stage img { width: 138px; height: 138px; object-fit: contain; }
+.stage figcaption { font-size: 13px; color: var(--muted); padding: 0 0 14px; }
+
+/* sections */
+section { padding: 72px 0; }
+section.soft { background: var(--bg-soft); }
+h2 { font-size: clamp(28px, 4vw, 38px); line-height: 1.2; margin: 0 0 12px; letter-spacing: -.01em; }
+.sub { color: var(--muted); max-width: 640px; margin: 0 0 36px; }
+.center { text-align: center; }
+.center .sub { margin-left: auto; margin-right: auto; }
+
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.step { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 24px; }
+.step .n { width: 34px; height: 34px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: grid; place-items: center; font-weight: 700; margin-bottom: 14px; }
+.step h3 { margin: 0 0 6px; font-size: 19px; }
+.step p { margin: 0; color: var(--muted); font-size: 16px; }
+@media (max-width: 800px) { .steps { grid-template-columns: 1fr; } }
+
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: center; }
+.split.flip .shot { order: -1; }
+.split ul { padding: 0; margin: 18px 0 0; list-style: none; }
+.split li { padding-left: 28px; position: relative; margin: 10px 0; }
+.split li::before { content: ""; position: absolute; left: 0; top: .6em; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
+.split li b { font-weight: 650; }
+.shot { display: flex; justify-content: center; }
+.shot img { border-radius: 16px; box-shadow: var(--shadow); border: 1px solid var(--line); }
+.shot.bare img { box-shadow: none; border: 0; border-radius: 0; }
+@media (max-width: 860px) { .split { grid-template-columns: 1fr; gap: 28px; } .split.flip .shot { order: 0; } }
+
+.states { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+.state { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
+.state .dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
+.state h3 { margin: 0 0 4px; font-size: 17px; }
+.state p { margin: 0; font-size: 15px; color: var(--muted); }
+.state .pic { background: var(--stage); border-radius: 12px; margin-bottom: 14px; display: grid; place-items: center; padding: 6px; }
+.state .pic img { width: 120px; height: 120px; object-fit: contain; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.feature { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 22px; }
+.feature h3 { margin: 0 0 6px; font-size: 18px; }
+.feature p { margin: 0; color: var(--muted); font-size: 15.5px; }
+
+.wide { margin-top: 30px; }
+.wide img { margin: 0 auto; border-radius: 16px; box-shadow: var(--shadow); border: 1px solid var(--line); }
+
+.privacy { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+.privacy .feature h3::before { content: "\2713"; color: var(--green); margin-right: 8px; }
+
+pre, code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: .92em; }
+pre { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; overflow-x: auto; margin: 14px 0; }
+:not(pre) > code { background: var(--bg-soft); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+
+details { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 4px 20px; margin: 10px 0; }
+summary { cursor: pointer; padding: 14px 0; font-weight: 600; }
+details p { margin: 0 0 16px; color: var(--muted); }
+
+footer { padding: 40px 0 60px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 14px 28px; justify-content: space-between; }
+footer p { margin: 0; max-width: 620px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="assets/icon.png" alt="">Claus</a>
+    <div class="links">
+      <a class="hide-sm" href="#how">How it works</a>
+      <a class="hide-sm" href="#states">States</a>
+      <a class="hide-sm" href="#yours">Make it yours</a>
+      <a class="hide-sm" href="#privacy">Privacy</a>
+      <a class="btn small primary" href="https://github.com/Squizzoo/Claus/releases/latest">Download</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <h1>Stop watching the window.<br><span>Let a pet tell you</span> when Claude is done.</h1>
+    <p class="lead">Claus is a small desktop pet for Windows. It shows when any Claude chat has <b>finished</b>, asked a <b>question</b> or needs your <b>approval</b>. Click it and you land in that chat.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/Squizzoo/Claus/releases/latest">Download for Windows</a>
+      <a class="btn" href="https://github.com/Squizzoo/Claus">View on GitHub</a>
+    </div>
+    <p class="fine">Free and open source. Windows 10 and 11. Everything stays on your computer.</p>
+
+    <div class="stage" aria-label="The cat in each mood">
+      <figure><img src="assets/state-sleep.png" alt="Sleeping cat"><figcaption>No chats</figcaption></figure>
+      <figure><img src="assets/state-idle.png" alt="Calm cat"><figcaption>All quiet</figcaption></figure>
+      <figure><img src="assets/state-working.png" alt="Cat with thinking dots"><figcaption>Working</figcaption></figure>
+      <figure><img src="assets/state-done.png" alt="Happy cat with a check mark"><figcaption>Finished</figcaption></figure>
+      <figure><img src="assets/state-question.png" alt="Cat with a question mark"><figcaption>Question</figcaption></figure>
+      <figure><img src="assets/state-approval.png" alt="Worried cat with an exclamation mark"><figcaption>Needs approval</figcaption></figure>
+      <figure><img src="assets/state-angry.png" alt="Angry cat"><figcaption>Kept waiting</figcaption></figure>
+    </div>
+  </div>
+</header>
+
+<section id="how">
+  <div class="wrap">
+    <div class="center">
+      <h2>Three steps, no account</h2>
+      <p class="sub">Claus listens to Claude Code on your own machine. There is no server, no sign-in and nothing to configure to get started.</p>
+    </div>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><h3>Install</h3><p>Run the installer. It lives in the tray and appears on your desktop. No admin rights needed.</p></div>
+      <div class="step"><div class="n">2</div><h3>Allow the hooks</h3><p>On first start Claus asks once before adding its small local hooks to Claude Code. A backup is kept, and your own hooks are never touched.</p></div>
+      <div class="step"><div class="n">3</div><h3>Carry on working</h3><p>Start a chat and do something else. The pet reacts the moment Claude needs you. Click it to open the list.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="soft" id="list">
+  <div class="wrap split">
+    <div>
+      <h2>Every chat in one list</h2>
+      <p class="sub" style="margin-bottom:0">Click the pet to see all your chats, grouped by project and sorted so the one that needs you is on top. Click a chat and Claude Desktop opens it.</p>
+      <ul>
+        <li><b>Jump straight to the chat</b> in Claude Desktop, or bring forward the terminal or VS Code window it runs in.</li>
+        <li><b>Search, pin and mute</b> chats. Press <code>/</code> to filter, right-click a row for more actions.</li>
+        <li><b>Live timers</b> show how long a chat has been working or waiting for you, plus a token count per chat.</li>
+        <li><b>Undo</b> when you clear finished chats by mistake.</li>
+      </ul>
+    </div>
+    <div class="shot bare"><img src="assets/list.png" alt="The chat list grouped by project, with chats waiting, working and finished" width="420"></div>
+  </div>
+</section>
+
+<section id="states">
+  <div class="wrap">
+    <div class="center">
+      <h2>It shows what you need to know</h2>
+      <p class="sub">The pet always shows the most urgent thing. When several things are waiting at once you get one chip for each kind, with a count.</p>
+    </div>
+    <div class="states">
+      <div class="state"><div class="pic"><img src="assets/state-working.png" alt=""></div><h3><span class="dot" style="background:#8a8f9c"></span>Working</h3><p>A chat is busy. Nothing to do yet.</p></div>
+      <div class="state"><div class="pic"><img src="assets/state-done.png" alt=""></div><h3><span class="dot" style="background:var(--green)"></span>Finished</h3><p>Claude is done and the result is ready for you.</p></div>
+      <div class="state"><div class="pic"><img src="assets/state-question.png" alt=""></div><h3><span class="dot" style="background:var(--blue)"></span>Question</h3><p>Claude asked you something and waits for the answer.</p></div>
+      <div class="state"><div class="pic"><img src="assets/state-approval.png" alt=""></div><h3><span class="dot" style="background:var(--red)"></span>Approval</h3><p>A tool needs your permission before it can go on.</p></div>
+    </div>
+    <div class="split flip" style="margin-top:56px">
+      <div class="shot bare"><img src="assets/chips.png" alt="An angry cat with three notification chips" width="270"></div>
+      <div>
+        <h3 style="font-size:24px;margin:0 0 8px">An impatient pet</h3>
+        <p class="sub" style="margin-bottom:0">If a question or approval has been waiting longer than you allow (2 minutes by default), the pet turns angry: red face, shaking, a chime. Answer the chat and it calms down. Or set the patience to "never".</p>
+      </div>
+    </div>
+    <div class="split" style="margin-top:40px">
+      <div>
+        <h3 style="font-size:24px;margin:0 0 8px">Little celebrations</h3>
+        <p class="sub" style="margin-bottom:0">Three chats finish within a minute and confetti bursts over the pet. A small counter in the list tells you how many finished today.</p>
+      </div>
+      <div class="shot bare"><img src="assets/celebrate.png" alt="The cat surrounded by confetti" width="270"></div>
+    </div>
+  </div>
+</section>
+
+<section class="soft" id="yours">
+  <div class="wrap">
+    <div class="center">
+      <h2>Pick your companion</h2>
+      <p class="sub">Sixteen pets, ten colours, hats and mustaches. Every pet has art for every mood. Changes apply to the real pet straight away.</p>
+    </div>
+    <div class="wide"><img src="assets/settings-appearance.png" alt="The settings window with the pet gallery, colours, accessories and mustaches" width="980"></div>
+    <div class="grid" style="margin-top:32px">
+      <div class="feature"><h3>Sounds</h3><p>Four sound packs with a different tune for each kind of alert, volume control and quiet hours.</p></div>
+      <div class="feature"><h3>Notifications</h3><p>Optional Windows toasts, snooze, repeat reminders and auto-hide. No alert for a chat you are already looking at.</p></div>
+      <div class="feature"><h3>Size and opacity</h3><p>From 100 to 250 pixels, and see-through when you want it out of the way.</p></div>
+      <div class="feature"><h3>Snap and monitors</h3><p>Snap to edges or corners, follow the window you work in across screens, stay above fullscreen video.</p></div>
+      <div class="feature"><h3>Click-through</h3><p>While nothing needs you, clicks pass through the pet. Hold Ctrl to grab it.</p></div>
+      <div class="feature"><h3>Follows Claude Desktop</h3><p>Hide the pet when Claude is not running and start it with Windows.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="privacy">
+  <div class="wrap">
+    <div class="center">
+      <h2>Private by design</h2>
+      <p class="sub">A notification pet has no business knowing what you write. So it does not.</p>
+    </div>
+    <div class="privacy">
+      <div class="feature"><h3>Local only</h3><p>The receiver listens on 127.0.0.1, refuses browser requests and always answers immediately, so it can never block or change Claude.</p></div>
+      <div class="feature"><h3>No prompts stored</h3><p>Only the session id, the event name, the tool name and the project folder are kept. Prompts and tool inputs are dropped before anything is saved or logged.</p></div>
+      <div class="feature"><h3>No telemetry</h3><p>The only thing that leaves your computer is the update check on the installed version: one request to GitHub for the latest release.</p></div>
+      <div class="feature"><h3>Open source</h3><p>All of it is plain JavaScript you can read. The hooks it adds are listed in the first-run dialog before you agree.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="soft" id="install">
+  <div class="wrap">
+    <div class="center">
+      <h2>Get Claus</h2>
+      <p class="sub">Download the installer from the latest release. The installed version can start with Windows and update itself.</p>
+      <div class="cta"><a class="btn primary" href="https://github.com/Squizzoo/Claus/releases/latest">Download the latest release</a></div>
+    </div>
+    <div style="max-width:760px;margin:36px auto 0">
+      <details>
+        <summary>Installer or portable?</summary>
+        <p><b>Claus-Setup</b> installs per user (no admin), adds a Start menu entry and an uninstaller, and can start with Windows and update itself. The <b>portable</b> exe is one file that installs nothing and never checks for updates.</p>
+      </details>
+      <details>
+        <summary>Windows says "unknown publisher"</summary>
+        <p>The installer is not code-signed yet, so SmartScreen warns the first time. Choose <i>More info</i>, then <i>Run anyway</i>. The source is public and the release is built from it.</p>
+      </details>
+      <details>
+        <summary>What does it change in Claude Code?</summary>
+        <p>It adds eight small local hooks (plain HTTP to 127.0.0.1) to <code>~/.claude/settings.json</code>. A backup is kept as <code>settings.json.pet-bak</code>, your existing hooks are not touched, and you can remove ours from the System tab at any time. Chats that were already open need a restart to pick the hooks up.</p>
+      </details>
+      <details>
+        <summary>Does it work with the terminal and VS Code?</summary>
+        <p>Yes for notifications. Chats started outside Claude Desktop cannot be opened by the pet, but it brings forward the window they run in.</p>
+      </details>
+      <details>
+        <summary>Run it from source</summary>
+        <pre>git clone https://github.com/Squizzoo/Claus.git
+cd Claus
+npm install
+npm start
+node scripts/hooks.js install --apply</pre>
+        <p>Needs Node.js and npm. <code>npm test</code> runs the tests.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>Claus is an independent community project. It is not made by, affiliated with or endorsed by Anthropic. "Claude" is a trademark of Anthropic.</p>
+    <p><a href="https://github.com/Squizzoo/Claus">GitHub</a> &middot; <a href="https://github.com/Squizzoo/Claus/releases">Releases</a> &middot; <a href="https://github.com/Squizzoo/Claus/issues">Report an issue</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
