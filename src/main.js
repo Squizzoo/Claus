@@ -647,6 +647,7 @@ function updateSystem(patch) {
   if (settings.system.login !== before.login && caps().login) {
     try {
       app.setLoginItemSettings({ openAtLogin: settings.system.login });
+      loginCache = { at: 0, value: false }; // read it again
     } catch (err) {
       debugLog(`login item failed: ${err.message}`);
     }
@@ -695,15 +696,22 @@ function updateAction(what) {
   else if (what === 'install') updater.install();
 }
 
+let loginCache = { at: 0, value: false }; // reading the login item is a registry lookup; it is part of every settings push
 function systemSnapshot() {
   const c = caps();
   const u = updater.state();
   const h = hooksStatus();
   let login = false;
-  try {
-    login = c.login ? app.getLoginItemSettings().openAtLogin : false;
-  } catch {
-    /* not available */
+  if (c.login) {
+    const now = Date.now();
+    if (now - loginCache.at > 5000) {
+      try {
+        loginCache = { at: now, value: app.getLoginItemSettings().openAtLogin };
+      } catch {
+        loginCache = { at: now, value: false }; // not available
+      }
+    }
+    login = loginCache.value;
   }
   return {
     followClaude: settings.system.followClaude,

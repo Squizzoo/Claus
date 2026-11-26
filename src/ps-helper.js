@@ -9,10 +9,11 @@ const { helperScript } = require('./paths');
  * `script` is a file name next to the sources; `extraArgs` go after -File <script>.
  * ask(line) resolves with the helper's answer line (trimmed), or null when it died, hung or this is not Windows. Never rejects.
  */
-function createHelper(script, { extraArgs = [], timeoutMs = 4000 } = {}) {
+function createHelper(script, { extraArgs = [], timeoutMs = 4000, idleMs = 60_000 } = {}) {
   let child = null;
   let buffer = '';
   let current = null; // { resolve, timer } for the question in flight
+  let idleTimer = null;
   let chain = Promise.resolve();
 
   const settle = (value) => {
@@ -21,12 +22,19 @@ function createHelper(script, { extraArgs = [], timeoutMs = 4000 } = {}) {
     const { resolve } = current;
     current = null;
     resolve(value);
+    // a helper nobody asks for stops, so a PowerShell process is not left running for the rare question
+    clearTimeout(idleTimer);
+    if (idleMs > 0) {
+      idleTimer = setTimeout(reset, idleMs);
+      if (idleTimer.unref) idleTimer.unref();
+    }
   };
-  const reset = () => {
+  function reset() {
+    clearTimeout(idleTimer);
     try { child && child.kill(); } catch { /* already gone */ }
     child = null;
     buffer = '';
-  };
+  }
 
   function start() {
     child = spawn(
@@ -46,10 +54,9 @@ function createHelper(script, { extraArgs = [], timeoutMs = 4000 } = {}) {
       }
     });
     const gone = () => {
-      if (child === mine) {
-        child = null;
-        buffer = '';
-      }
+      if (child !== mine) return; // an old helper that was killed on purpose: it must not answer a newer question
+      child = null;
+      buffer = '';
       settle(null);
     };
     child.on('exit', gone);
@@ -60,6 +67,7 @@ function createHelper(script, { extraArgs = [], timeoutMs = 4000 } = {}) {
   function once(line) {
     return new Promise((resolve) => {
       try {
+        clearTimeout(idleTimer);
         if (!child) start();
         current = {
           resolve,
