@@ -15,6 +15,7 @@ const PetSounds = require('./renderer/sounds');
 const celebrateLib = require('./celebrate');
 const notifyLib = require('./notify');
 const { showToast } = require('./toast');
+const { createTranscriptReader } = require('./transcript');
 
 const PORT = Number(process.env.CLAUDE_PET_PORT) || DEFAULT_PORT;
 const PET = 150; // collapsed window: the pet only
@@ -27,6 +28,7 @@ app.setAppUserModelId('com.claus.pet'); // gives the Windows toasts a stable ide
 
 const store = new SessionStore();
 const openChat = createOpenChatWatcher();
+const transcripts = createTranscriptReader();
 let win = null; // the pet: always PET x PET, never resized (resizing a transparent window blinks it)
 let panelWin = null; // the chat list: its own window next to the pet, shown and hidden
 let settingsWin = null; // the settings window (a normal window, opened by double-clicking the pet or from the tray)
@@ -243,6 +245,25 @@ function push(opts = {}) {
   dispatchAlerts(store.takeAlerts(), together, petShown && win.isVisible()); // before updateAutoHide below may show the pet
   if (together && !SHOT_RUN) celebrate(together); // shot runs trigger it themselves, so it does not land in other pictures
   updateAutoHide(snap);
+}
+
+// ---------- token totals ----------
+// Reads only what was appended to each chat's transcript since the last time, and keeps the counters (never the text).
+let refreshingTokens = false;
+async function refreshTokens(only) {
+  if (refreshingTokens) return;
+  refreshingTokens = true;
+  try {
+    const ids = only || [...store.ids()];
+    if (!only) transcripts.keepOnly(store.ids());
+    let changed = false;
+    for (const id of ids) {
+      if (await transcripts.refresh(id)) changed = store.setUsage(id, transcripts.totals(id)) || changed;
+    }
+    if (changed) push();
+  } finally {
+    refreshingTokens = false;
+  }
 }
 
 // ---------- alerts: sound, toast, focus and snooze ----------
@@ -732,6 +753,7 @@ app.whenReady().then(async () => {
       if (process.env.CLAUDE_PET_LOG) logEvent(p);
       if (store.applyHook(p)) push();
       else if (store.takeActivity()) pushActivity();
+      if (p.hook_event_name === 'Stop') refreshTokens([p.session_id]); // a finished turn is when the total is worth knowing
     },
   });
   try {
@@ -753,6 +775,10 @@ app.whenReady().then(async () => {
     const reminded = !snoozed() && store.tickReminders(settings.notify.remindMin * 60_000); // and chimes again every few minutes
     if (overdue || reminded) push();
   }, 5000);
+  if (!SHOT_RUN) {
+    refreshTokens();
+    setInterval(() => refreshTokens(), 10_000); // chats that are still running move their total between hooks
+  }
   setInterval(() => updateAutoHide(store.snapshot()), 1000); // the grace before the pet hides runs on time, not on events
   armSnooze(); // a snooze that survived a restart still has to end
   // the "finished today" number starts again at midnight even when nothing else happens

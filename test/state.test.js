@@ -430,3 +430,16 @@ test('lastActive follows hooks and the registry, and a hook that changes nothing
   st.syncRegistry([{ sessionId: SID, cwd: 'C:\\x\\proj', status: 'busy', statusUpdatedAt: c.t }]);
   assert.equal(st.takeActivity(), false); // the same timestamp again is not activity
 });
+
+test('token totals ride along in the snapshot and only report real changes', () => {
+  const st = new SessionStore();
+  st.applyHook(hook('UserPromptSubmit'));
+  assert.equal(st.snapshot().sessions[0].tokens, null);
+  const u = { input: 4, output: 10, cacheWrite: 6, cacheRead: 900 };
+  assert.equal(st.setUsage(SID, u), true);
+  assert.equal(st.setUsage(SID, { ...u }), false);
+  assert.equal(st.snapshot().sessions[0].tokens, 20);
+  assert.deepEqual(st.snapshot().sessions[0].usage, u);
+  assert.equal(st.setUsage('unknown-chat', u), false);
+  assert.deepEqual([...st.ids()], [SID]);
+});

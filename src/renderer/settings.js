@@ -152,6 +152,7 @@
 
   $('muted').addEventListener('change', (e) => window.pet.setBehaviour({ muted: e.target.checked }));
   $('streak').addEventListener('change', (e) => pick({ streak: e.target.checked }));
+  $('show-tokens').addEventListener('change', (e) => pick({ showTokens: e.target.checked }));
 
   // ---------- sending changes ----------
   /** Shows the change at once and asks the main process to apply it (it answers with the real state). */
@@ -209,6 +210,7 @@
     if (st.patience && patienceButtons.length !== st.patience.length) patienceButtons = segmented($('patience'), st.patience.map((p) => [p.min, p.label]), (min) => window.pet.setBehaviour({ impatientMin: min }));
     setChecked(patienceButtons, (b) => b.dataset.value === String(st.impatientMin));
     $('streak').checked = look.streak;
+    $('show-tokens').checked = look.showTokens;
 
     const nt = st.notify;
     const ch = st.notifyChoices;

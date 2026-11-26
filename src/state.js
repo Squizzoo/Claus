@@ -8,6 +8,8 @@
 //   question  Claude asked you something (AskUserQuestion / elicitation)
 //   approval  Claude needs a permission approval
 
+const { badgeTokens } = require('./usage');
+
 const PRIORITY = { idle: 0, working: 1, done: 2, question: 3, approval: 4 };
 const ATTENTION = new Set(['done', 'question', 'approval']);
 const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -191,6 +193,20 @@ class SessionStore {
     const changed = this._set(s, next) || !existing;
     if (!changed) this.activity = true;
     return changed;
+  }
+
+  /** Token totals read from a chat's transcript ({input, output, cacheWrite, cacheRead}, or null). True when they changed. */
+  setUsage(id, usage) {
+    const s = this.sessions.get(id);
+    if (!s) return false;
+    const same = JSON.stringify(s.usage || null) === JSON.stringify(usage || null);
+    if (same) return false;
+    s.usage = usage || null;
+    return true;
+  }
+
+  ids() {
+    return new Set(this.sessions.keys());
   }
 
   /** True once after a hook or registry update that only moved "last active": the UI may refresh, but need not rush. */
@@ -402,6 +418,8 @@ class SessionStore {
         state: s.state,
         since: s.since,
         turnStart: s.turnStart,
+        usage: s.usage || null,
+        tokens: s.usage ? badgeTokens(s.usage) : null,
         lastActive: Math.max(s.since, s.lastHookAt, s.registryStatusAt),
         overdue: this._isOverdue(s),
         muted: this._isMuted(s),

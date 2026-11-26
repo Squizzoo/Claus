@@ -69,6 +69,16 @@
     return m < 1 ? 'now' : m < 60 ? `${m}m` : `${Math.floor(m / 60)}h`;
   }
 
+  const showTokens = (r) => r.tokens > 0 && !(last.look && last.look.showTokens === false);
+
+  /** The tooltip of a row: its name and the line under it, then what the token badge adds up. */
+  function rowTitle(r, sub) {
+    const u = showTokens(r) ? r.usage : null;
+    const f = PetView.formatTokens;
+    const tip = u ? `\nTokens: ${f(u.input)} in · ${f(u.output)} out · ${f(u.cacheWrite)} cache written · ${f(u.cacheRead)} cache read` : '';
+    return r.jumpable ? `${r.name}\n${sub}${tip}` : `This chat is not in Claude Desktop, so it cannot be opened from here${tip}`;
+  }
+
   /** What a row says about time: the long line under the name and the short age of the compact density. */
   function rowTexts(r, showFolder) {
     const now = Date.now();
@@ -76,8 +86,9 @@
     if (r.overdue) when = `waiting ${PetView.formatDuration(now - r.since)}!`;
     else if (r.state === 'working') when = `for ${PetView.formatDuration(now - (r.turnStart || r.since))} · active ${PetView.formatAgo(now - r.lastActive)}`;
     else when = ago(r.since);
+    const tokens = showTokens(r) ? ` · ${PetView.formatTokens(r.tokens)} tokens` : '';
     return {
-      sub: `${PHRASE[r.state]} ${r.state === 'working' ? '' : '· '}${when}${showFolder && r.folder ? ' · ' + r.folder : ''}`,
+      sub: `${PHRASE[r.state]} ${r.state === 'working' ? '' : '· '}${when}${tokens}${showFolder && r.folder ? ' · ' + r.folder : ''}`,
       short: shortAge(r.state === 'working' ? r.turnStart || r.since : r.since),
     };
   }
@@ -94,7 +105,7 @@
       const sub = li.querySelector('.sub');
       if (sub.textContent !== t.sub) {
         sub.textContent = t.sub;
-        if (r.jumpable) li.title = `${r.name}\n${t.sub}`;
+        li.title = rowTitle(r, t.sub);
       }
       const short = li.querySelector('.short');
       if (short.textContent !== t.short) short.textContent = t.short;
@@ -196,7 +207,7 @@
     short.className = 'short';
     short.textContent = t.short;
     text.append(name, sub, short);
-    if (r.jumpable) li.title = `${r.name}\n${t.sub}`;
+    li.title = rowTitle(r, t.sub);
 
     const hover = document.createElement('div');
     hover.className = 'hover-acts';
@@ -340,7 +351,7 @@
     const flat = state.prefs.groupBy === 'none';
     const sig = JSON.stringify([flat, view.items.map((i) => (i.type === 'group'
       ? [i.key, i.label, i.count, i.state, i.late, i.muted, i.collapsed]
-      : [i.id, i.name, i.state, i.jumpable, i.overdue, i.muted, i.pinned, i.mutedChat, i.folder, i.since && (i.overdue ? Math.floor((Date.now() - i.since) / 60000) : ago(i.since))]))]);
+      : [i.id, i.name, i.state, i.jumpable, i.overdue, i.muted, i.pinned, i.mutedChat, i.folder, i.tokens, i.since && (i.overdue ? Math.floor((Date.now() - i.since) / 60000) : ago(i.since))]))]);
     if (sig !== listSig) {
       listSig = sig;
       const keep = focusedKey();
