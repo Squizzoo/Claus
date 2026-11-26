@@ -1,6 +1,6 @@
 # Claus
 
-A small cat that lives on your desktop and tells you when any Claude chat has
+A small pet that lives on your desktop (a cat by default, or one of 16 pets) and tells you when any Claude chat has
 **finished**, has a **question** or needs your **approval**. Click it to see all
 your chats; click a chat to jump straight to it in Claude Desktop.
 
@@ -57,6 +57,25 @@ something again; *Clear finished* / *Clear idle* in the footer do it in bulk, wi
 sorting (needs me first / most recent) and density (comfortable / compact). Everything is
 remembered in `pet-settings.json`.
 
+## Make it yours
+
+Everything here is in the tray menu (right-click the tray icon) and remembered.
+
+- **Pet:** cat, dog, bunny, bird, penguin, owl, dragon, sprout, blob, ghost, robot, alien, car, sun, moon
+  or cloud. Every pet has art for every mood above (sleeping, calm, working, happy, question,
+  approval and angry); the speech bubble and chips are the same for all of them.
+- **Colour and accessory:** ten colours (the flushed and angry faces follow the colour you pick) and a
+  bow, top hat, crown or party hat.
+- **Idle animations:** a calm pet blinks and breathes, and every 8 to 20 seconds stretches, yawns, looks
+  around or wags its tail (or antenna, flipper, rays). A pet without a tail never wags.
+- **Celebration:** when three chats finish within a minute, confetti and sparkles burst over the pet and
+  it hops, with a short fanfare (at most once a minute). Muted chats do not count towards it.
+- **Finished today:** the list header shows `✓ n today`, the number of chats that finished today
+  (switch it off with *Show chats finished today*). Only the date and the number are saved.
+- **Sound:** four packs (Chime, Soft, Retro, Pluck) with a different tune for `!`, `?`, `✓`, the angry
+  pet and the celebration; volume 25 to 100 %; *Quiet hours* (22:00-07:00, 23:00-08:00 or 18:00-09:00)
+  silence the sounds only, the pet still moves and shows chips. *Mute sounds* stays the manual off switch.
+
 ## Run it
 
 ```powershell
@@ -69,23 +88,64 @@ node scripts/hooks.js install --apply    # writes the hooks (backup: settings.js
 
 Hooks are read by chats at start, so restart chats that were already open.
 Remove them any time with `node scripts/hooks.js uninstall --apply`.
-Tray icon: reset position, mute sounds, anger patience, clear finished, quit.
+Tray icon: reset position, pet, colour, accessory, sound pack, volume, quiet hours, mute sounds, anger patience,
+finished-today counter, clear finished, quit.
 
 ## Start and stop with Claude
 
-`scripts/watch-claude.ps1` is a tiny hidden watcher: it starts the pet when Claude
-Desktop opens and stops it when Claude Desktop closes. It only reacts to changes,
-so if you quit the pet from the tray while Claude stays open, it stays quit until
-Claude opens again. It matches the desktop app only, not the Claude Code engines.
+Instead of starting the pet by hand, let it follow Claude Desktop: it appears when Claude Desktop
+opens and goes away when Claude Desktop closes. Set it up once:
 
-```powershell
-.\scripts\autostart.ps1 install     # adds it to your Startup folder and starts it now
-.\scripts\autostart.ps1 status
-.\scripts\autostart.ps1 uninstall   # removes it again
-```
+1. **Install the pet first** (once, from the project folder), so `node_modules\electron\dist\electron.exe` exists:
 
-Note: if closing Claude's window only hides it to the system tray, Claude is still
-running, so the pet stays until you fully quit Claude.
+   ```powershell
+   npm install
+   node node_modules/electron/install.js   # only if electron.exe is missing (npm 11 skips install scripts)
+   ```
+
+2. **Add the hooks** so Claude tells the pet what chats are doing (see *Run it* above; restart chats that were already open):
+
+   ```powershell
+   node scripts/hooks.js install --apply
+   ```
+
+3. **Turn on the startup watcher:**
+
+   ```powershell
+   .\scripts\autostart.ps1 install
+   ```
+
+   This puts a small launcher (`ClaudePetWatcher.vbs`) in your Windows Startup folder and starts the
+   watcher right away. From then on it runs hidden at every Windows login, with no console window. If
+   PowerShell refuses to run the script (execution policy), use
+   `powershell -ExecutionPolicy Bypass -File .\scripts\autostart.ps1 install` instead.
+
+4. **Check it:**
+
+   ```powershell
+   .\scripts\autostart.ps1 status    # shows the startup entry and whether the watcher is running
+   ```
+
+   Open Claude Desktop: the pet appears within a few seconds. Fully quit Claude Desktop and it disappears again.
+
+To switch it off again: `.\scripts\autostart.ps1 uninstall` removes the startup entry and stops the watcher
+(a pet that is already open keeps running until you quit it from the tray).
+
+How the watcher behaves (`scripts/watch-claude.ps1`):
+
+- It only reacts to changes. If you quit the pet from the tray while Claude stays open, the pet stays
+  quit until the next time Claude opens.
+- It ignores a short gap (a few seconds) without Claude, so an app restart or update does not stop the pet.
+- It matches the Claude **desktop app** only (the Microsoft Store install under `WindowsApps`), not the Claude
+  Code engines that also run as `claude.exe`. If your Claude Desktop is installed somewhere else, change the
+  default of the `-PathLike` parameter at the top of `watch-claude.ps1`, then run `autostart.ps1 uninstall` and `install`.
+- When Claude closes, the watcher stops every pet running from this project's folder, including one you
+  started by hand with `npm start`.
+- If closing Claude's window only hides it to the system tray, Claude is still running, so the pet stays
+  until you fully quit Claude.
+- The startup entry points at this folder. If you move or rename the project, run `autostart.ps1 uninstall`
+  and then `install` again from the new location.
+- To start the pet by hand without the watcher, use `npm start`.
 
 ## Privacy
 
@@ -94,8 +154,9 @@ running, so the pet stays until you fully quit Claude.
   block or change what Claude does.
 - Only `session_id`, event name, tool *name*, notification type and `cwd` are kept.
   Tool inputs, prompts and messages are dropped before anything is stored or logged.
-- Your list preferences are saved to `pet-settings.json` in the app's user-data folder:
-  the session ids you pinned or muted, and the project folder paths you muted or collapsed.
+- Your preferences are saved to `pet-settings.json` in the app's user-data folder:
+  the session ids you pinned or muted, the project folder paths you muted or collapsed, the pet,
+  colour, accessory and sound you chose, and today's date with the number of chats finished.
   Nothing else about a chat is written to disk.
 - Chat names come from `~/.claude/sessions/*.json` (metadata only, never the `.key` files).
 - `CLAUDE_PET_LOG=1` writes event names and 8-character session ids to `pet-events.log`.
@@ -103,13 +164,18 @@ running, so the pet stays until you fully quit Claude.
 ## Develop
 
 ```powershell
-npm test                                   # state machine, hook receiver, list model, prefs
+npm test                                   # state machine, hook receiver, list model, prefs, pets, sounds
 npx electron . --shot=out/mood             # renders every mood + the list to out/*.png
+npx electron . --shot=out/m --pets         # contact sheets: every pet in every mood, colours, accessories, idle actions
 ```
 
 `--shot` never writes the real settings. While your own pet is running, give the screenshot
 run its own port and profile (single-instance lock): `$env:CLAUDE_PET_PORT = '47999'` and
 `--user-data-dir=<temp folder>`.
+
+The pets are data in `src/renderer/pets.js`: a pet supplies its body art and a few face measurements, and a
+shared generator draws the eyes and mouth for every mood. To add a pet, add one entry there and run the
+`--pets` sheets; `test/pets.test.js` checks that it covers every mood. Sounds are data in `src/renderer/sounds.js`.
 
 The list logic (filter, group, sort, pins) lives in `src/renderer/view.js` and is unit tested;
 the DOM around it is not. Clicks and keys are tested with real input events over the DevTools

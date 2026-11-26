@@ -3,16 +3,102 @@
 //   npx electron . --shot=out/mood
 const fs = require('fs');
 const path = require('path');
-const { app } = require('electron');
+const { app, BrowserWindow } = require('electron');
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function run(win, prefix, { store, setPanel, push, setPrefs, panelWin }) {
+/** Lays pictures out in a grid (cols wide) and saves that as one PNG, so every pet can be judged at a glance. */
+async function sheet(file, cells, cols) {
+  const rows = Math.ceil(cells.length / cols);
+  const html = `<body style="margin:0;background:#dfe5ec;font:11px sans-serif"><div style="display:grid;grid-template-columns:repeat(${cols},112px)">${cells
+    .map((c) => `<div style="position:relative;width:112px;height:112px">${c.png.length ? `<img width="112" height="112" src="data:image/png;base64,${c.png.toString('base64')}">` : ''}<span style="position:absolute;left:3px;top:2px;color:#456">${c.label}</span></div>`)
+    .join('')}</div></body>`;
+  const w = new BrowserWindow({ show: false, width: cols * 112, height: rows * 112, useContentSize: true });
+  await w.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  await wait(400);
+  fs.writeFileSync(file, (await w.webContents.capturePage()).toPNG());
+  w.destroy();
+}
+
+// Every pet in every mood, 6 pets per sheet: `npx electron . --shot=out/m --pets` writes out/m-pets-1.png and so on.
+async function petSheets(win, prefix, { store, push, setLook }) {
+  const PetArt = require('./renderer/pets');
+  const MOODS = {
+    sleep: () => {},
+    idle: (hook) => hook('SessionStart'),
+    working: (hook) => hook('UserPromptSubmit'),
+    done: (hook) => hook('Stop'),
+    question: (hook) => hook('PreToolUse', { tool_name: 'AskUserQuestion' }),
+    approval: (hook) => hook('PermissionRequest', { tool_name: 'Bash' }),
+    angry: (hook, s) => { hook('PermissionRequest', { tool_name: 'Bash' }); s().since = Date.now() - 9 * 60_000; },
+  };
+  const cells = [];
+  for (const id of PetArt.ORDER) {
+    setLook({ pet: id });
+    for (const [mood, set] of Object.entries(MOODS)) {
+      store.sessions.clear();
+      set((event, extra = {}) => { store.applyHook({ session_id: 's-pet', cwd: 'C:\p\demo', hook_event_name: event, ...extra }); }, () => store.sessions.get('s-pet'));
+      push();
+      await wait(320);
+      cells.push({ png: (await win.webContents.capturePage()).toPNG(), label: `${id} · ${mood}` });
+    }
+  }
+  const per = 6 * Object.keys(MOODS).length;
+  for (let i = 0; i * per < cells.length; i++) await sheet(`${prefix}-pets-${i + 1}.png`, cells.slice(i * per, (i + 1) * per), Object.keys(MOODS).length);
+
+  // Colours: a few pets in every skin; accessories: every pet with every accessory (all calm).
+  store.sessions.clear();
+  store.applyHook({ session_id: 's-pet', cwd: 'C:\\p\\demo', hook_event_name: 'SessionStart' });
+  const look = async (patch, label) => {
+    setLook(patch);
+    push();
+    await wait(320);
+    return { png: (await win.webContents.capturePage()).toPNG(), label };
+  };
+  const skinCells = [];
+  for (const id of ['cat', 'dog', 'penguin', 'robot', 'car', 'ghost']) {
+    for (const skin of PetArt.SKIN_ORDER) skinCells.push(await look({ pet: id, skin, accessory: 'none' }, `${id} · ${skin}`));
+  }
+  await sheet(`${prefix}-skins.png`, skinCells, PetArt.SKIN_ORDER.length);
+  const accs = PetArt.ACCESSORY_ORDER.filter((a) => a !== 'none');
+  for (let half = 0; half < 2; half++) {
+    const ids = PetArt.ORDER.slice(half * 8, half * 8 + 8);
+    const accCells = [];
+    for (const accessory of accs) for (const id of ids) accCells.push(await look({ pet: id, skin: 'default', accessory }, `${id} · ${accessory}`));
+    await sheet(`${prefix}-acc-${half + 1}.png`, accCells, ids.length);
+  }
+
+  // Idle actions, caught part-way through (each one is a class on #root for a moment).
+  const actCells = [];
+  for (const id of ['cat', 'dog', 'bird', 'robot', 'ghost', 'sun']) {
+    setLook({ pet: id, skin: 'default', accessory: 'none' });
+    push();
+    await wait(300);
+    for (const [name, act] of Object.entries(PetArt.IDLE_ACTIONS)) {
+      if (act.needsTail && !PetArt.buildPet(id).hasTail) { actCells.push({ png: Buffer.alloc(0), label: `${id} · ${name} (no tail)` }); continue; }
+      await win.webContents.executeJavaScript(`document.getElementById('root').classList.add('act-${name}')`);
+      await wait(name === 'wag' ? 120 : name === 'yawn' ? 520 : 480);
+      actCells.push({ png: (await win.webContents.capturePage()).toPNG(), label: `${id} · ${name}` });
+      await win.webContents.executeJavaScript(`document.getElementById('root').classList.remove('act-${name}')`);
+      await wait(150);
+    }
+  }
+  await sheet(`${prefix}-idle-acts.png`, actCells, Object.keys(PetArt.IDLE_ACTIONS).length);
+  setLook({ pet: 'cat', skin: 'default', accessory: 'none' });
+}
+
+async function run(win, prefix, { store, setPanel, push, setPrefs, setLook, celebrate, panelWin }) {
   store.syncRegistry = () => false; // keep the real registry out of the pictures
   store.sessions.clear();
   setPrefs(require('./prefs').DEFAULTS); // and the real list preferences (nothing is saved in a shot run)
   fs.mkdirSync(path.dirname(prefix), { recursive: true });
   await new Promise((r) => (win.webContents.isLoading() ? win.webContents.once('did-finish-load', r) : r()));
+
+  if (process.argv.includes('--pets')) {
+    await petSheets(win, prefix, { store, push, setLook });
+    app.quit();
+    return;
+  }
 
   const hook = (id, name, event, extra = {}) => {
     store.applyHook({ session_id: id, cwd: `C:\\xampp\\htdocs\\${name}`, hook_event_name: event, ...extra });
@@ -104,6 +190,15 @@ async function run(win, prefix, { store, setPanel, push, setPrefs, panelWin }) {
   store.dismissAllDone();
   await evalIn(`document.getElementById('opts-toggle').click()`);
   await snap('20-list-options-undo');
+
+  // ---- celebration: confetti and sparkles when several chats finish together ----
+  setPanel(0);
+  store.sessions.clear();
+  hook('p1', 'bonnebella.nl', 'Stop');
+  hook('p2', 'printuploader.com', 'Stop');
+  hook('p3', 'delijstenfabriek.nl', 'Stop');
+  celebrate(3);
+  await snap('21-celebrate');
 
   app.quit();
 }

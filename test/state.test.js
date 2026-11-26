@@ -326,3 +326,32 @@ test('a chat that finishes while it is already open is cleared on the next repor
   assert.ok(st.markViewing(HOST));
   assert.equal(st.snapshot().sessions[0].state, 'idle');
 });
+
+test('takeFinished lists each chat that finishes once, with whether it was muted', () => {
+  const clk = clock();
+  const st = new SessionStore({ now: clk.now });
+  st.setMuted({ ids: ['s2'] });
+  const stop = (id) => st.applyHook({ ...hook('Stop'), session_id: id });
+  const start = (id) => st.applyHook({ ...hook('UserPromptSubmit'), session_id: id });
+  start('s1');
+  stop('s1');
+  clk.advance(1000);
+  start('s2');
+  stop('s2');
+  const done = st.takeFinished();
+  assert.deepEqual(done.map((d) => [d.id, d.muted]), [['s1', false], ['s2', true]]);
+  assert.ok(done[1].at > done[0].at);
+  assert.deepEqual(st.takeFinished(), [], 'taken once');
+  stop('s1'); // already done: not another finish
+  assert.deepEqual(st.takeFinished(), []);
+});
+
+test('clearing, undoing and opening a finished chat are not finishes', () => {
+  const st = new SessionStore();
+  st.applyHook({ ...hook('Stop'), session_id: 's1' });
+  st.takeFinished();
+  st.dismissRow('s1');
+  st.undo();
+  st.markViewing(null);
+  assert.deepEqual(st.takeFinished(), []);
+});
