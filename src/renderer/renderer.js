@@ -1,5 +1,6 @@
 'use strict';
 (() => {
+  const ROLE = new URLSearchParams(location.search).get('role') === 'panel' ? 'panel' : 'pet'; // two windows, one page
   const root = document.getElementById('root');
   const petEl = document.getElementById('pet');
   const panel = document.getElementById('panel');
@@ -229,7 +230,7 @@
   function render(state) {
     last = state;
     const mood = state.sessions.length === 0 ? 'sleep' : state.mood;
-    root.className = `side-${state.layout.side} ${state.layout.vertical} mood-${mood}${state.overdue ? ' angry' : ''}`;
+    root.className = `role-${ROLE} side-${state.layout.side} ${state.layout.vertical} mood-${mood}${state.overdue ? ' angry' : ''}`;
     const multi = renderChips(state);
     const text = state.overdue && !multi ? (mood === 'question' ? '?!' : '!!') : BUBBLE[mood] ?? '';
     bubbleText.textContent = text;
@@ -278,6 +279,9 @@
     } else {
       sentHeight = -1;
     }
+
+    // Tell the main process once this state is on screen (it reveals the list window after that).
+    if (state.paintId) requestAnimationFrame(() => requestAnimationFrame(() => window.pet.painted(state.paintId)));
   }
 
   // ---------- actions ----------

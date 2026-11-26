@@ -20,6 +20,10 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: transparen
 #panel[hidden] { display: none; }
 .up #panel { top: 0; bottom: 150px; padding-bottom: 6px; }
 .down #panel { bottom: 0; top: 150px; padding-top: 6px; }
+/* the pet and the list are separate windows showing this same page */
+.role-pet #panel { display: none !important; }
+.role-panel #pet { display: none; }
+.role-panel.up #panel { bottom: 0; } .role-panel.down #panel { top: 0; }
 
 /* ---------- pet art ---------- */
 #shadow { fill: rgba(0, 0, 0, 0.18); }

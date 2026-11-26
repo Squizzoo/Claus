@@ -18,7 +18,8 @@ const MARGIN = 16;
 if (!app.requestSingleInstanceLock()) app.quit();
 
 const store = new SessionStore();
-let win = null;
+let win = null; // the pet: always PET x PET, never resized (resizing a transparent window blinks it)
+let panelWin = null; // the chat list: its own window next to the pet, shown and hidden
 let tray = null;
 let server = null;
 let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS }; // impatientMin 0 = never angry
@@ -92,34 +93,34 @@ function defaultPos() {
   return { x: a.x + a.width - PET - MARGIN, y: a.y + a.height - PET - MARGIN };
 }
 
-function computeBounds() {
-  if (panelH <= 0) return { x: petPos.x, y: petPos.y, width: PET, height: PET };
+function petBounds() {
+  return { x: petPos.x, y: petPos.y, width: PET, height: PET };
+}
+/** The list window sits beside the pet, on the side with room. Also settles `layout` for the renderer. */
+function panelBounds() {
   const a = displayFor(petPos.x, petPos.y, PET, PET).workArea;
-  const side = petPos.x - (PANEL_W - PET) >= a.x ? 'right' : 'left'; // pet's side of the window
+  const side = petPos.x - (PANEL_W - PET) >= a.x ? 'right' : 'left'; // the side of the list the pet is on
   const vertical = petPos.y - panelH >= a.y ? 'up' : 'down';
   layout = { side, vertical };
-  const height = PET + panelH;
+  const height = Math.max(60, Math.min(panelH, a.height - PET));
   return {
     x: side === 'right' ? petPos.x - (PANEL_W - PET) : petPos.x,
-    y: vertical === 'up' ? petPos.y - panelH : petPos.y,
+    y: vertical === 'up' ? petPos.y - height : petPos.y + PET,
     width: PANEL_W,
-    height: Math.min(height, a.height),
+    height,
   };
 }
-// Moves/resizes the window. Callers that change what the renderer should draw (the panel or
-// its side) call push() themselves: pushing from here is what made the list redraw in a loop.
+// Moves the windows. Callers that change what the renderer should draw (the panel or its side)
+// call push() themselves: pushing from here is what made the list redraw in a loop.
 function applyBounds() {
-  if (!win || win.isDestroyed()) return;
-  win.setBounds(computeBounds());
+  if (win && !win.isDestroyed()) win.setBounds(petBounds());
+  if (panelH > 0 && panelWin && !panelWin.isDestroyed()) panelWin.setBounds(panelBounds());
 }
 
 // ---------- window ----------
-function createWindow() {
-  loadSettings();
-  store.impatientMs = Math.max(0, Number(settings.impatientMin) || 0) * 60_000;
-  petPos = settings.x == null ? defaultPos() : clampToDisplays(settings.x, settings.y);
-  win = new BrowserWindow({
-    ...computeBounds(),
+function makeWindow(role, bounds, extra) {
+  const w = new BrowserWindow({
+    ...bounds,
     transparent: true,
     frame: false,
     resizable: false,
@@ -137,35 +138,81 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true,
     },
+    ...extra,
   });
-  win.setAlwaysOnTop(true, 'floating');
-  win.setMenuBarVisibility(false);
-  win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  win.once('ready-to-show', () => win.showInactive());
-  win.on('blur', () => {
-    debugLog(`blur (panel ${panelH > 0 ? 'open' : 'closed'})`);
-    if (panelH > 0 && !drag) setPanel(0);
-  });
+  w.setAlwaysOnTop(true, 'floating');
+  w.setMenuBarVisibility(false);
+  w.loadFile(path.join(__dirname, 'renderer', 'index.html'), { query: { role } });
   // webContents never navigates away or opens windows
-  win.webContents.on('will-navigate', (e) => e.preventDefault());
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  w.webContents.on('will-navigate', (e) => e.preventDefault());
+  w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  return w;
 }
 
-function push() {
+function createWindow() {
+  loadSettings();
+  store.impatientMs = Math.max(0, Number(settings.impatientMin) || 0) * 60_000;
+  petPos = settings.x == null ? defaultPos() : clampToDisplays(settings.x, settings.y);
+  win = makeWindow('pet', petBounds());
+  win.once('ready-to-show', () => win.showInactive());
+  panelWin = makeWindow('panel', { x: petPos.x, y: petPos.y, width: PANEL_W, height: 100 });
+  // The list closes when focus goes somewhere else. Clicking the pet moves focus between our own
+  // two windows, so wait a moment and look: the pet's own click (toggle-panel) decides in that case.
+  const closeWhenAway = () => setTimeout(() => {
+    if (panelH > 0 && !drag && !win.isFocused() && !panelWin.isFocused()) {
+      debugLog('focus left the pet: closing the list');
+      setPanel(0);
+    }
+  }, 60);
+  win.on('blur', closeWhenAway);
+  panelWin.on('blur', closeWhenAway);
+}
+
+// The pet window always gets expanded:false (it never shows the list); the list window gets the
+// real flag. opts.paintId asks the list window to answer ('painted') once the state is on screen.
+function push(opts = {}) {
   if (!win || win.isDestroyed()) return;
-  win.webContents.send('state', { ...store.snapshot(), muted: settings.muted, prefs: settings.prefs, layout, expanded: panelH > 0 });
+  const snap = { ...store.snapshot(), muted: settings.muted, prefs: settings.prefs, layout };
+  win.webContents.send('state', { ...snap, expanded: false });
+  if (panelWin && !panelWin.isDestroyed()) panelWin.webContents.send('state', { ...snap, expanded: panelH > 0, paintId: opts.paintId });
   const alerts = store.takeAlerts();
   if (alerts.length && !settings.muted) win.webContents.send('alert', alerts.map((a) => a.state));
 }
 
+// A window that is shown for the first time (or again) can flash its previous content for a frame.
+// So it is shown at opacity 0 and only made visible once the renderer reports the new state drawn.
+const paintWaiters = new Map();
+let paintSeq = 0;
+function afterPaint(fn) {
+  const id = ++paintSeq;
+  const run = () => {
+    if (paintWaiters.delete(id)) fn();
+  };
+  paintWaiters.set(id, run);
+  setTimeout(run, 150); // never leave the list invisible if an answer is lost
+  return id;
+}
+ipcMain.on('painted', (_e, id) => paintWaiters.get(id)?.());
+
 function setPanel(extra) {
   const next = Math.max(0, Math.round(extra));
   if (next === panelH) return; // nothing changed: do not resize, push or steal focus again
-  const opening = panelH === 0 && next > 0;
+  const opening = panelH === 0;
   panelH = next;
-  applyBounds();
-  push();
-  if (opening && win) win.focus();
+  if (!panelWin || panelWin.isDestroyed()) return;
+  if (next === 0) {
+    push();
+    panelWin.hide(); // the pet is never touched
+  } else if (opening) {
+    panelWin.setBounds(panelBounds());
+    panelWin.setOpacity(0);
+    push({ paintId: afterPaint(() => panelH > 0 && panelWin.setOpacity(1)) });
+    panelWin.show();
+    panelWin.focus();
+  } else {
+    panelWin.setBounds(panelBounds());
+    push();
+  }
 }
 
 // ---------- IPC ----------
@@ -190,7 +237,7 @@ ipcMain.on('drag-move', () => {
   const c = screen.getCursorScreenPoint();
   petPos = { x: Math.round(drag.px + c.x - drag.cx), y: Math.round(drag.py + c.y - drag.cy) };
   // Same size every tick: avoids the window growing when crossing monitors with different scaling.
-  win.setBounds({ x: petPos.x, y: petPos.y, width: PET, height: PET });
+  win.setBounds(petBounds());
 });
 ipcMain.on('drag-end', () => {
   if (!drag) return;
@@ -335,7 +382,7 @@ app.whenReady().then(async () => {
   screen.on('display-metrics-changed', () => { petPos = clampToDisplays(petPos.x, petPos.y); applyBounds(); push(); });
   // Dev aid: `electron . --shot=out.png` renders the current state to a PNG, then quits.
   const shot = process.argv.find((a) => a.startsWith('--shot='));
-  if (shot) require('./shot').run(win, shot.slice(7), { store, setPanel, push, setPrefs: updatePrefs });
+  if (shot) require('./shot').run(win, shot.slice(7), { store, setPanel, push, setPrefs: updatePrefs, panelWin: () => panelWin });
 });
 
 app.on('second-instance', () => win && win.showInactive());
