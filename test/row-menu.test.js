@@ -43,3 +43,9 @@ test('the terminal command escapes semicolons and refuses relative paths', () =>
   assert.equal(terminalCommand('sites'), null);
   assert.equal(terminalCommand(undefined), null);
 });
+
+test('a Chat tab conversation only offers bringing Claude forward, pin and mute', () => {
+  const chat = { sessionId: 'chat_x', cwd: '', hostSessionId: null, focusable: false, entrypoint: null, chat: true };
+  assert.deepEqual(ids(rowMenuTemplate(chat, {})), ['open', 'pin', 'mute']);
+  assert.equal(rowMenuTemplate(chat, { pinned: ['chat_x'], mutedChats: ['chat_x'] }).slice(-2).map((i) => i.label).join('|'), 'Unpin|Unmute this chat');
+});

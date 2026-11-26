@@ -506,7 +506,7 @@ test('a chat outside Claude Desktop can be focused through its process; Desktop 
   assert.deepEqual([by.desktop.jumpable, by.desktop.terminal], [true, false]);
   assert.deepEqual([by.wsl.jumpable, by.wsl.terminal], [false, false]);
   assert.deepEqual([by['no pid'].jumpable, by['no pid'].terminal], [false, false]);
-  assert.deepEqual(st.infoOf(A), { sessionId: A, cwd: 'C:\\term', hostSessionId: null, pid: 4321, focusable: true, entrypoint: 'cli' });
+  assert.deepEqual(st.infoOf(A), { sessionId: A, cwd: 'C:\\term', hostSessionId: null, pid: 4321, focusable: true, entrypoint: 'cli', chat: false });
   assert.equal(st.infoOf('nope'), null);
 });
 

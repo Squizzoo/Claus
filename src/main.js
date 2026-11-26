@@ -23,9 +23,11 @@ const systemLib = require('./system');
 const hooksLib = require('./hooks-install');
 const updaterLib = require('./updater');
 const { createClaudeWatcher } = require('./claude-running');
+const { createChatWatcher } = require('./chat-watch');
 const { showToast } = require('./toast');
 const { createTranscriptReader } = require('./transcript');
 const { rowMenuTemplate, vscodeUrl, terminalCommand } = require('./row-menu');
+const { trayMenuTemplate } = require('./tray-menu');
 
 const PORT = Number(process.env.CLAUDE_PET_PORT) || DEFAULT_PORT;
 let PET = lookLib.sizePx(lookLib.DEFAULTS.size); // collapsed window: the pet only; the pixel size of the chosen look.size (set in createWindow)
@@ -293,7 +295,7 @@ async function refreshTokens(only) {
   if (refreshingTokens) return;
   refreshingTokens = true;
   try {
-    const ids = only || [...store.ids()];
+    const ids = (only || [...store.ids()]).filter((id) => !id.startsWith('chat_')); // Chat tab rows have no transcript
     if (!only) transcripts.keepOnly(store.ids());
     let changed = false;
     for (const id of ids) {
@@ -348,7 +350,7 @@ function deliver(alerts, together, petWasVisible) {
 function openFromToast(id) {
   debugLog(`toast clicked ${id.slice(0, 8)}`);
   const info = store.infoOf(id);
-  if (info && (info.hostSessionId || info.focusable)) {
+  if (info && (info.hostSessionId || info.focusable || info.chat)) {
     jumpTo(id);
     return;
   }
@@ -657,6 +659,14 @@ function updateSystem(patch) {
     claudeIsGone = false;
     if (settings.system.followClaude) pollClaude();
   }
+  if (settings.system.watchChat !== before.watchChat) {
+    if (settings.system.watchChat) pollChats();
+    else {
+      if (chatWatcherInstance) chatWatcherInstance.stop(); // no PowerShell helper (and no Chromium accessibility request) while it is off
+      lastChatLog = '';
+      store.clearChats();
+    }
+  }
   saveSettings();
   rebuildTray();
   push();
@@ -679,6 +689,28 @@ async function pollClaude() {
     }
   } finally {
     pollingClaude = false;
+  }
+}
+
+// Chat tab of Claude Desktop (no hooks there): its Stop button is watched while "watch chat" is on. See chat-watch.js.
+let chatWatcherInstance = null;
+const chatWatcher = () => chatWatcherInstance || (chatWatcherInstance = createChatWatcher());
+let pollingChats = false;
+let lastChatLog = '';
+async function pollChats() {
+  if (!settings.system.watchChat || pollingChats || SHOT_RUN) return;
+  pollingChats = true;
+  try {
+    const chats = await chatWatcher().read();
+    if (!settings.system.watchChat || !chats) return; // turned off meanwhile, or no usable answer
+    const log = `${chats.length} on screen, ${chats.filter((c) => c.working).length} answering`;
+    if (log !== lastChatLog) {
+      lastChatLog = log;
+      debugLog(`chat tab: ${log}`); // counts only, never ids or text
+    }
+    if (store.applyChats(chats)) push();
+  } finally {
+    pollingChats = false;
   }
 }
 
@@ -715,6 +747,7 @@ function systemSnapshot() {
   }
   return {
     followClaude: settings.system.followClaude,
+    watchChat: settings.system.watchChat,
     login,
     loginAvailable: c.login,
     updatesAvailable: c.updates,
@@ -873,6 +906,15 @@ ipcMain.on('drag-end', () => {
 
 /** Opens a chat in Claude Desktop and raises the window above whatever covers it. */
 async function jumpTo(id) {
+  const info = store.infoOf(id);
+  if (info && info.chat) {
+    // a Chat tab conversation has no address to open: raise Claude Desktop, which shows it if it is still the open tab
+    store.dismiss(id);
+    setPanel(0);
+    push();
+    debugLog(`jump ${id.slice(0, 8)} chat focus: ${await focusClaude()}`);
+    return true;
+  }
   const url = jumpUrl(store.hostIdOf(id));
   if (!url) return focusTerminal(id);
   store.dismiss(id);
@@ -1141,28 +1183,62 @@ function updatePlace(patch) {
 }
 ipcMain.on('set-place', (_e, patch) => updatePlace(patch));
 ipcMain.on('set-system', (_e, patch) => {
-  const { login, followClaude } = patch && typeof patch === 'object' ? patch : {};
-  updateSystem({ login, followClaude }); // setupAsked is the app's own business
+  const { login, followClaude, watchChat } = patch && typeof patch === 'object' ? patch : {};
+  updateSystem({ login, followClaude, watchChat }); // setupAsked is the app's own business
 });
 ipcMain.on('hooks-action', (_e, action) => {
   if (action === 'install' || action === 'uninstall') changeHooks(action, settingsWin);
 });
 ipcMain.on('update-action', (_e, what) => updateAction(what));
 ipcMain.on('snooze', (_e, minutes) => setSnooze(minutes));
+// right-click on the pet: the same minimal menu as the tray icon
+ipcMain.on('pet-menu', () => {
+  if (!win || win.isDestroyed()) return;
+  buildTrayMenu().menu.popup({ window: win });
+});
 ipcMain.on('preview-sound', (_e, req) => previewSound(req));
 
 // ---------- tray ----------
 const JUMP_WARNING = 'Opening a chat from the list no longer seems to work (Claude Desktop may have changed)';
-/** Tray entries about updates: nothing at all for builds that cannot update. */
-function updateTrayItems() {
-  if (!caps().updates) return [];
+/** What the updater has to say in the menu: only a line while something is going on and a button when there is something to do. */
+function updateMenuState() {
+  if (!caps().updates) return {};
   const u = updater.state();
-  // A line only while there is something to act on or to wait for; a failed check (no release yet, no network) stays in the System tab.
-  const items = ['available', 'downloading', 'ready'].includes(u.status) ? [{ label: updaterLib.describe(u), enabled: false }] : [];
-  if (u.status === 'available') items.push({ label: 'Download the update', click: () => updater.download() });
-  else if (u.status === 'ready') items.push({ label: 'Restart to update', click: () => updater.install() });
-  else if (u.status !== 'checking' && u.status !== 'downloading') items.push({ label: 'Check for updates', click: () => updater.check() });
-  return items;
+  const line = ['available', 'downloading', 'ready'].includes(u.status) ? updaterLib.describe(u) : undefined;
+  return { line, action: u.status === 'available' ? 'download' : u.status === 'ready' ? 'install' : undefined };
+}
+/** The menu of the tray icon and of the pet: the template is pure (tray-menu.js), this attaches the actions. */
+function buildTrayMenu() {
+  const warning = jumpHealthLib.status(jumpHealth) === 'broken' ? JUMP_WARNING : '';
+  const actions = {
+    warning: () => openSettings(),
+    settings: () => openSettings(),
+    'show-pet': () => showPet(false, 30_000),
+    'update-download': () => updater.download(),
+    'update-install': () => updater.install(),
+    'snooze-resume': () => setSnooze(0),
+    'clear-finished': () => { store.dismissAllDone(); push(); },
+    'reset-position': () => { petPos = defaultPos(); settings.x = petPos.x; settings.y = petPos.y; saveSettings(); applyBounds(); push(); },
+    quit: () => app.quit(),
+  };
+  const attach = (item) => {
+    if (item.type === 'separator') return item;
+    const out = { label: item.label };
+    if (item.enabled === false) out.enabled = false;
+    if (item.submenu) out.submenu = item.submenu.map(attach);
+    else if (item.id === 'snooze-set') out.click = () => setSnooze(item.min);
+    else if (item.id === 'mute') Object.assign(out, { type: 'checkbox', checked: item.checked, click: (i) => applyBehaviour({ muted: i.checked }) });
+    else if (actions[item.id]) out.click = actions[item.id];
+    return out;
+  };
+  const template = trayMenuTemplate({
+    warning,
+    update: updateMenuState(),
+    snoozeLabel: snoozed() ? `Snoozed until ${notifyLib.clock(settings.notify.snoozeUntil)}` : null,
+    snoozeOptions: notifyLib.SNOOZE,
+    muted: settings.muted,
+  });
+  return { menu: Menu.buildFromTemplate(template.map(attach)), warning };
 }
 function buildTray() {
   const img = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'tray.png'));
@@ -1170,49 +1246,10 @@ function buildTray() {
   tray.setToolTip('Claus');
   rebuildTray = () => {
     // only a route that seems to be broken is worth a tray warning; "Claude was updated, not checked yet" is a note in the System tab
-    const warning = jumpHealthLib.status(jumpHealth) === 'broken' ? JUMP_WARNING : '';
-    tray.setToolTip(`${snoozed() ? `Claus (snoozed until ${notifyLib.clock(settings.notify.snoozeUntil)})` : 'Claus'}${warning ? `\n${warning}` : ''}`);
-    tray.setContextMenu(
-      Menu.buildFromTemplate([
-        ...(warning ? [{ label: `⚠ ${warning}`, click: () => openSettings() }, { type: 'separator' }] : []),
-        { label: 'Settings...', click: () => openSettings() },
-        { label: 'Show pet', click: () => showPet(false, 30_000) },
-        ...(caps().login ? [{ label: 'Start with Windows', type: 'checkbox', checked: systemSnapshot().login, click: (i) => updateSystem({ login: i.checked }) }] : []),
-        { label: 'Hide while Claude Desktop is not running', type: 'checkbox', checked: settings.system.followClaude, click: (i) => updateSystem({ followClaude: i.checked }) },
-        ...updateTrayItems(),
-        { label: 'Reset position', click: () => { petPos = defaultPos(); settings.x = petPos.x; settings.y = petPos.y; saveSettings(); applyBounds(); push(); } },
-        { label: 'Pet', submenu: PetArt.ORDER.map((id) => ({ label: PetArt.PETS[id].label, type: 'radio', checked: settings.look.pet === id, click: () => updateLook({ pet: id }) })) },
-        { label: 'Colour', submenu: PetArt.SKIN_ORDER.map((id) => ({ label: PetArt.SKINS[id].label, type: 'radio', checked: settings.look.skin === id, click: () => updateLook({ skin: id }) })) },
-        { label: 'Accessory', submenu: PetArt.ACCESSORY_ORDER.map((id) => ({ label: PetArt.ACCESSORIES[id].label, type: 'radio', checked: settings.look.accessory === id, click: () => updateLook({ accessory: id }) })) },
-        { label: 'Size', submenu: lookLib.SIZE_ORDER.map((id) => ({ label: lookLib.SIZES[id].label, type: 'radio', checked: settings.look.size === id, click: () => updateLook({ size: id }) })) },
-        { label: 'Opacity', submenu: lookLib.OPACITIES.map((v) => ({ label: `${v}%`, type: 'radio', checked: settings.look.opacity === v, click: () => updateLook({ opacity: v }) })) },
-        { label: 'Snap to', submenu: placeLib.SNAP.map(({ id, label }) => ({ label, type: 'radio', checked: settings.place.snap === id, click: () => updatePlace({ snap: id }) })) },
-        { label: 'Monitors', submenu: placeLib.MONITOR.map(({ id, label }) => ({ label, type: 'radio', checked: settings.place.monitor === id, click: () => updatePlace({ monitor: id }) })) },
-        { label: 'Stay above fullscreen apps', type: 'checkbox', checked: settings.place.fullscreen, click: (i) => updatePlace({ fullscreen: i.checked }) },
-        { label: 'Click-through while nothing needs me (Ctrl + hover to grab)', type: 'checkbox', checked: settings.place.clickThrough, click: (i) => updatePlace({ clickThrough: i.checked }) },
-        { label: 'Sound pack', submenu: PetSounds.PACK_ORDER.map((id) => ({ label: PetSounds.PACKS[id].label, type: 'radio', checked: settings.look.pack === id, click: () => { updateLook({ pack: id }); previewSound(); } })) },
-        { label: 'Volume', submenu: PetSounds.VOLUMES.map((v) => ({ label: `${v}%`, type: 'radio', checked: settings.look.volume === v, click: () => { updateLook({ volume: v }); previewSound(); } })) },
-        { label: 'Quiet hours (no sound)', submenu: lookLib.QUIET_ORDER.map((id) => ({ label: lookLib.QUIET[id].label, type: 'radio', checked: settings.look.quiet === id, click: () => updateLook({ quiet: id }) })) },
-        { label: 'Mute sounds', type: 'checkbox', checked: settings.muted, click: (i) => applyBehaviour({ muted: i.checked }) },
-        {
-          label: 'Gets angry after waiting',
-          submenu: lookLib.PATIENCE.map(({ min, label }) => ({ label, type: 'radio', checked: settings.impatientMin === min, click: () => applyBehaviour({ impatientMin: min }) })),
-        },
-        { label: `Today: ${todaySummary().finished} finished${todaySummary().waits ? ` · longest wait ${clockLength(todaySummary().longestMs)}` : ''}`, enabled: false },
-        { label: 'Show chats finished today', type: 'checkbox', checked: settings.look.streak, click: (i) => updateLook({ streak: i.checked }) },
-        {
-          label: snoozed() ? `Snoozed until ${notifyLib.clock(settings.notify.snoozeUntil)} - Resume` : 'Snooze',
-          ...(snoozed() ? { click: () => setSnooze(0) } : { submenu: notifyLib.SNOOZE.map(({ min, label }) => ({ label, click: () => setSnooze(min) })) }),
-        },
-        { label: 'Toasts', submenu: notifyLib.TOAST.map(({ id, label }) => ({ label, type: 'radio', checked: settings.notify.toast === id, click: () => updateNotify({ toast: id }) })) },
-        { label: 'Toast for', submenu: notifyLib.KINDS.map(({ id, label }) => ({ label, type: 'checkbox', checked: settings.notify.toastKinds[id], click: (i) => updateNotify({ toastKinds: { [id]: i.checked } }) })) },
-        { label: 'Repeat reminder', submenu: notifyLib.REMIND.map(({ min, label }) => ({ label, type: 'radio', checked: settings.notify.remindMin === min, click: () => updateNotify({ remindMin: min }) })) },
-        { label: 'Auto-hide', submenu: notifyLib.AUTO_HIDE.map(({ id, label }) => ({ label, type: 'radio', checked: settings.notify.autoHide === id, click: () => updateNotify({ autoHide: id }) })) },
-        { label: 'Clear finished', click: () => { store.dismissAllDone(); push(); } },
-        { type: 'separator' },
-        { label: 'Quit', click: () => app.quit() },
-      ])
-    );
+    const { menu, warning } = buildTrayMenu();
+    tray.setToolTip(`${snoozed() ? `Claus (snoozed until ${notifyLib.clock(settings.notify.snoozeUntil)})` : 'Claus'}${warning ? `
+${warning}` : ''}`);
+    tray.setContextMenu(menu);
   };
   rebuildTray();
   tray.on('click', () => showPet(false, 30_000));
@@ -1260,6 +1297,8 @@ app.whenReady().then(async () => {
     // which monitor the window the user works in is on (only asked while "follow" is on), and which Claude version runs (every few minutes)
     setInterval(followActiveMonitor, 1000);
     setInterval(pollClaude, 3000);
+    setInterval(pollChats, 1500);
+    pollChats(); // a watch that was on at the last quit starts at once
     if (caps().updates) {
       setTimeout(() => updater.check(), 10_000);
       setInterval(() => updater.check(), 6 * 3600_000);
@@ -1332,5 +1371,6 @@ app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => {
   openChat.stop();
   if (claudeWatcherInstance) claudeWatcherInstance.stop();
+  if (chatWatcherInstance) chatWatcherInstance.stop();
   if (server) server.close();
 });

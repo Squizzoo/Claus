@@ -147,6 +147,10 @@
         <p class="hint">Hide the pet while Claude Desktop is not running and bring it back when you open Claude. Only the Desktop app counts, not Claude Code in a terminal.</p>
         <label class="switch"><input type="checkbox" id="follow-claude"><span class="track"></span><span class="label">Hide while Claude Desktop is not running</span></label>
 
+        <h2>Chat tab</h2>
+        <p class="hint">The Chat tab of Claude Desktop has no hooks, so Claus watches its Stop button instead and chimes when a reply is finished. This only works while the Claude window is on screen and not covered by other windows (on a second monitor, or side by side): Windows stops a covered window from updating, so a reply that finishes behind other windows is not noticed. It also only sees the conversation that is showing: once you open another tab in Claude (Code, Cowork), a reply still streaming can no longer be followed. No message text is read. This keeps Claude Desktop's accessibility support switched on while it runs.</p>
+        <label class="switch"><input type="checkbox" id="watch-chat"><span class="track"></span><span class="label">Notice replies in the Chat tab</span></label>
+
         <h2>Updates</h2>
         <p id="update-state" class="status"></p>
         <div class="actions"><button type="button" id="update-check" class="btn">Check for updates</button><button type="button" id="update-go" class="btn" hidden></button></div>

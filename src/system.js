@@ -6,6 +6,7 @@ const DEFAULTS = {
   setupAsked: false, // the first-run dialog has been shown (whatever was answered): it never nags twice
   login: false, // start with Windows
   followClaude: false, // hide while Claude Desktop is not running, show again when it is
+  watchChat: false, // also notice the Chat tab of Claude Desktop (no hooks there: its Stop button is watched through UI Automation)
 };
 
 const KEYS = Object.keys(DEFAULTS);
