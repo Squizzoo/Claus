@@ -68,8 +68,10 @@ Small changes with a big payoff now that the chat list is getting long.
 
 ## Phase 5: Behaviour and platform **[done]**
 
+- [x] **Chat tab notice** (opt-in, System tab): the Claude Desktop Chat tab has no hooks, so its Stop button is watched through UI Automation. Works while the window is
+      visible (not covered), only for the conversation on screen. Cowork is not covered.
 - [x] **Settings window** instead of tray-only: appearance, sound, notifications, behaviour, window and system tabs
-      (the tray keeps working and always shows the same values).
+      (the right-click menu is now minimal: settings, show pet, snooze, mute, clear finished, reset position, quit).
 - [x] **Size and opacity**, plus click-through while idle. Four sizes (100 to 250 px) and five opacities; the window is
       resized once when the size changes. Click-through while no chat needs you; Ctrl + hover grabs the pet.
 - [x] **Snap to corners or edges**, optional "stay above fullscreen apps" (not above exclusive-fullscreen games).

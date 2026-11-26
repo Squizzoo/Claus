@@ -17,6 +17,11 @@ const STALE_WORKING_MS = 30_000;
 const INTERRUPT_GRACE_MS = 4_000; // how long the registry must show "idle" before a working chat counts as interrupted
 const REGISTRY_GRACE_MS = 60_000;
 const VIEW_REPORTS = 2; // consecutive "this chat is open" reports before a finished chat counts as seen
+// Chat tab conversations (no hooks, no registry): seen through the page of Claude Desktop, see chat-watch.js.
+const CHAT_PREFIX = 'chat_';
+const CHAT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const CHAT_IDLE_READS = 2; // reads in a row without the Stop button before a streaming reply counts as finished (rides out a blip)
+const CHAT_GONE_READS = 3; // reads in a row without the page before a chat that was streaming is dropped (it can no longer be seen)
 
 /**
  * Maps one hook payload to the session's next state.
@@ -294,9 +299,10 @@ class SessionStore {
       }
     }
 
-    // Registry is authoritative for who exists, once we have seen it at least once.
+    // Registry is authoritative for who exists, once we have seen it at least once. Chat tab conversations are not in it at all.
     if (this.registrySynced) {
       for (const [id, s] of this.sessions) {
+        if (s.source === 'chat') continue;
         if (!seen.has(id) && s.inRegistry) { this.sessions.delete(id); changed = true; }
         else if (!seen.has(id) && !s.inRegistry && now - s.lastHookAt > REGISTRY_GRACE_MS) {
           this.sessions.delete(id); changed = true;
@@ -304,6 +310,71 @@ class SessionStore {
       }
     }
     this.registrySynced = true;
+    return changed;
+  }
+
+  /**
+   * Chat tab conversations as chat-watch.js reads them: [{id (a uuid), working, foreground}] for what the Claude windows show right now,
+   * or null for "no usable answer" (nothing changes). A reply that starts streaming makes a row, one that stops is finished (and chimes
+   * like any chat, unless the window was in front); a finished one that stays in front of you counts as seen. Only the page on screen is visible: a streaming chat
+   * whose page is replaced (you opened another tab) can no longer be followed and is dropped without a chime.
+   * Returns true when anything changed.
+   */
+  applyChats(chats) {
+    if (!Array.isArray(chats)) return false;
+    let changed = false;
+    const visible = new Set();
+    for (const c of chats) {
+      if (!c || !CHAT_ID.test(String(c.id))) continue;
+      const id = CHAT_PREFIX + c.id;
+      visible.add(id);
+      let s = this.sessions.get(id);
+      if (!s) {
+        if (!c.working) continue; // a page that is only open says nothing: a row appears when Claude starts answering
+        s = this._get(id);
+        s.source = 'chat';
+        s.name = 'Claude chat';
+        changed = true;
+      }
+      s.chatMisses = 0;
+      if (c.working) {
+        s.chatIdleReads = 0;
+        s.chatSeen = 0;
+        s.lastHookAt = this.now();
+        changed = this._set(s, 'working') || changed;
+      } else if (s.state === 'working') {
+        s.chatIdleReads = (s.chatIdleReads || 0) + 1;
+        if (s.chatIdleReads >= CHAT_IDLE_READS && this._set(s, 'done')) {
+          changed = true;
+          // Finishing while the Claude window is in front: you are looking at it, so it counts and is logged but does not chime or toast
+          // (a hook chat gets the same through filterFocused; a chat row has no host id for that). This also covers a window that was
+          // covered and stopped updating: it flips to done the moment it is brought forward.
+          if (c.foreground) this.alerts = this.alerts.filter((a) => a.id !== id);
+        }
+      } else if (s.state === 'done' && c.foreground) {
+        s.chatSeen = (s.chatSeen || 0) + 1;
+        if (s.chatSeen >= VIEW_REPORTS) changed = this._set(s, 'idle') || changed;
+      } else {
+        s.chatSeen = 0;
+      }
+    }
+    for (const [id, s] of this.sessions) {
+      if (s.source !== 'chat' || visible.has(id)) continue;
+      s.chatMisses = (s.chatMisses || 0) + 1;
+      if (s.state === 'idle' || (s.state === 'working' && s.chatMisses >= CHAT_GONE_READS)) {
+        this.sessions.delete(id);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  /** Forgets every Chat tab conversation (the watch was turned off). Returns true when there were any. */
+  clearChats() {
+    let changed = false;
+    for (const [id, s] of this.sessions) {
+      if (s.source === 'chat') { this.sessions.delete(id); changed = true; }
+    }
     return changed;
   }
 
@@ -463,8 +534,9 @@ class SessionStore {
         lastActive: Math.max(s.since, s.lastHookAt, s.registryStatusAt),
         overdue: this._isOverdue(s),
         muted: this._isMuted(s),
-        jumpable: Boolean(s.hostSessionId) || this._focusable(s), // clicking the row opens the chat, or raises the window it runs in
+        jumpable: Boolean(s.hostSessionId) || this._focusable(s) || s.source === 'chat', // clicking the row opens the chat, raises the window it runs in, or Claude Desktop
         terminal: !s.hostSessionId && this._focusable(s),
+        chat: s.source === 'chat',
       })),
     };
   }
@@ -481,7 +553,7 @@ class SessionStore {
   infoOf(id) {
     const s = this.sessions.get(id);
     if (!s) return null;
-    return { sessionId: s.id, cwd: s.cwd, hostSessionId: s.hostSessionId, pid: s.pid, focusable: this._focusable(s), entrypoint: s.entrypoint };
+    return { sessionId: s.id, cwd: s.cwd, hostSessionId: s.hostSessionId, pid: s.pid, focusable: this._focusable(s), entrypoint: s.entrypoint, chat: s.source === 'chat' };
   }
 
   /** Registry data needed to open a chat; kept out of the UI snapshot. */

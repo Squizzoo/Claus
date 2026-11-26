@@ -171,6 +171,7 @@
   let monitorButtons = [];
   $('login').addEventListener('change', (e) => window.pet.setSystem({ login: e.target.checked }));
   $('follow-claude').addEventListener('change', (e) => window.pet.setSystem({ followClaude: e.target.checked }));
+  $('watch-chat').addEventListener('change', (e) => window.pet.setSystem({ watchChat: e.target.checked }));
   $('hooks-install').addEventListener('click', () => window.pet.hooksAction('install'));
   $('hooks-remove').addEventListener('click', () => window.pet.hooksAction('uninstall'));
   $('update-check').addEventListener('click', () => window.pet.updateAction('check'));
@@ -330,6 +331,7 @@
     $('login').disabled = !sys.loginAvailable;
     $('login-hint').textContent = sys.loginAvailable ? 'Start Claus when you sign in to Windows.' : sys.portable ? 'The portable version has no fixed place to start from. Use the installer to start with Windows.' : 'Only the installed version can start with Windows (this one runs from a source folder).';
     $('follow-claude').checked = sys.followClaude;
+    $('watch-chat').checked = sys.watchChat;
     const u = sys.update;
     $('update-state').textContent = u.text || (sys.updatesAvailable ? '' : 'Updates work in the installed version only.');
     $('update-check').disabled = !sys.updatesAvailable || u.status === 'checking' || u.status === 'downloading';

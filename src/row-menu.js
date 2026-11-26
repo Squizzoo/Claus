@@ -8,6 +8,16 @@
  */
 function rowMenuTemplate(info, prefs) {
   if (!info) return [];
+  const p = prefs || {};
+  if (info.chat) {
+    // a Chat tab conversation: nothing to copy or open, only what the pet itself can do with it
+    return [
+      { id: 'open', label: 'Bring Claude forward' },
+      { type: 'separator' },
+      { id: 'pin', label: (p.pinned || []).includes(info.sessionId) ? 'Unpin' : 'Pin to the top' },
+      { id: 'mute', label: (p.mutedChats || []).includes(info.sessionId) ? 'Unmute this chat' : 'Mute this chat' },
+    ];
+  }
   const items = [];
   if (info.hostSessionId) items.push({ id: 'open', label: 'Open in Claude' });
   if (info.focusable) items.push({ id: 'focus', label: String(info.entrypoint || '').includes('vscode') ? 'Bring VS Code forward' : 'Bring its terminal forward' });
@@ -17,7 +27,6 @@ function rowMenuTemplate(info, prefs) {
     items.push({ id: 'folder', label: 'Open project folder' }, { id: 'vscode', label: 'Open project in VS Code' }, { id: 'terminal', label: 'Open project in a terminal' });
   }
   items.push({ type: 'separator' });
-  const p = prefs || {};
   items.push({ id: 'pin', label: (p.pinned || []).includes(info.sessionId) ? 'Unpin' : 'Pin to the top' });
   items.push({ id: 'mute', label: (p.mutedChats || []).includes(info.sessionId) ? 'Unmute this chat' : 'Mute this chat' });
   return items;
