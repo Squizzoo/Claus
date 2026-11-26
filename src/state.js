@@ -153,6 +153,7 @@ class SessionStore {
         since: this.now(),
         turnStart: 0, // when the current turn began (kept across questions and approvals); 0 while idle or done
         turnWaitMs: 0, // how much of this turn was spent waiting on you
+        pendingWaitMs: 0, // the wait in progress, kept across a question that becomes an approval
         lastHookAt: 0,
         hostSessionId: null,
         entrypoint: null,
@@ -173,10 +174,13 @@ class SessionStore {
     const now = this.now();
     // A wait only counts when the chat then ran again: a cancelled question that is left alone says nothing about you.
     // Either way the time spent waiting is not time Claude spent working.
+    // A question that turns into an approval is one wait, so the pieces are added up until the chat runs again.
     if (WAITING_ON_YOU.has(before)) {
       s.turnWaitMs += now - s.since;
-      if (state === 'working' && !this._isMuted(s)) this.times.waits.push(now - s.since);
+      s.pendingWaitMs += now - s.since;
     }
+    if (state === 'working' && s.pendingWaitMs > 0 && !this._isMuted(s)) this.times.waits.push(s.pendingWaitMs);
+    if (!WAITING_ON_YOU.has(state)) s.pendingWaitMs = 0;
     // A turn ends when the chat finishes or goes idle: the time it spent working is the turn minus what it waited on you.
     if (s.turnStart && (state === 'idle' || state === 'done')) {
       this.times.work.push(Math.max(0, now - s.turnStart - s.turnWaitMs));

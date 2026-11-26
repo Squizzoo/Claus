@@ -78,6 +78,7 @@ function createTranscriptReader({ dir = DIR, now = Date.now } = {}) {
             if (cut >= 0 || e.offset + bytesRead >= size || len >= MAX_SLICE) break;
             len = Math.min(len * 2, MAX_SLICE, size - e.offset);
           }
+          if (!buf.length) break; // the file shrank after the stat: nothing to read, and looping on it would never end
           if (cut < 0) {
             if (e.offset + buf.length >= size && buf.length < MAX_SLICE) break; // a half-written last line: wait for the rest
             cut = buf.length - 1; // an absurdly long line: drop it

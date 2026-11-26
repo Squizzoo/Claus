@@ -509,3 +509,15 @@ test('a chat outside Claude Desktop can be focused through its process; Desktop 
   assert.deepEqual(st.infoOf(A), { sessionId: A, cwd: 'C:\\term', hostSessionId: null, pid: 4321, focusable: true, entrypoint: 'cli' });
   assert.equal(st.infoOf('nope'), null);
 });
+
+test('a question that turns into an approval is one wait', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  st.applyHook(hook('PreToolUse', { tool_name: 'AskUserQuestion' }));
+  c.advance(20_000);
+  st.applyHook(hook('PermissionRequest', { tool_name: 'Bash' }));
+  c.advance(10_000);
+  st.applyHook(hook('PostToolUse', { tool_name: 'Bash' }));
+  assert.deepEqual(st.takeTimes().waits, [30_000]);
+});
