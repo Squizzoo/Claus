@@ -156,6 +156,8 @@ class SessionStore {
         lastHookAt: 0,
         hostSessionId: null,
         entrypoint: null,
+        pid: 0,
+        pidDomain: '',
         inRegistry: false,
         registryStatus: null,
         registryStatusAt: 0,
@@ -258,6 +260,8 @@ class SessionStore {
       if (e.cwd && s.cwd !== e.cwd) { s.cwd = e.cwd; changed = true; }
       if (s.hostSessionId !== (e.hostSessionId || null)) { s.hostSessionId = e.hostSessionId || null; changed = true; }
       s.entrypoint = e.entrypoint || null;
+      s.pid = Number.isInteger(e.pid) && e.pid > 0 ? e.pid : 0;
+      s.pidDomain = typeof e.pidDomain === 'string' ? e.pidDomain : '';
       s.inRegistry = true;
       s.registryStatus = e.status || null;
       if ((e.statusUpdatedAt || 0) > s.registryStatusAt) this.activity = true;
@@ -447,9 +451,25 @@ class SessionStore {
         lastActive: Math.max(s.since, s.lastHookAt, s.registryStatusAt),
         overdue: this._isOverdue(s),
         muted: this._isMuted(s),
-        jumpable: Boolean(s.hostSessionId),
+        jumpable: Boolean(s.hostSessionId) || this._focusable(s), // clicking the row opens the chat, or raises the window it runs in
+        terminal: !s.hostSessionId && this._focusable(s),
       })),
     };
+  }
+
+  /**
+   * A chat outside Claude Desktop (a terminal, VS Code) can still be brought forward through the window of the process it runs in.
+   * Only for chats whose process lives on this Windows machine (not WSL, whose pids are another machine's).
+   */
+  _focusable(s) {
+    return !s.hostSessionId && s.pid > 0 && (!s.pidDomain || s.pidDomain.startsWith('win32'));
+  }
+
+  /** What the main process needs to act on a chat (open it, focus it, copy its id, open its folder); kept out of the UI snapshot. */
+  infoOf(id) {
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    return { sessionId: s.id, cwd: s.cwd, hostSessionId: s.hostSessionId, pid: s.pid, focusable: this._focusable(s), entrypoint: s.entrypoint };
   }
 
   /** Registry data needed to open a chat; kept out of the UI snapshot. */

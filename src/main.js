@@ -6,7 +6,7 @@ const { SessionStore } = require('./state');
 const { readRegistry } = require('./registry');
 const { createServer, DEFAULT_PORT } = require('./server');
 const { jumpUrl } = require('./jump');
-const { focusClaude } = require('./focus');
+const { focusClaude, focusWindowOf } = require('./focus');
 const { createOpenChatWatcher } = require('./open-chat');
 const prefsLib = require('./prefs');
 const lookLib = require('./look');
@@ -319,10 +319,11 @@ function deliver(alerts, together, petWasVisible) {
   }
 }
 
-/** A toast was clicked: open the chat, or for a chat that cannot be opened (terminal) bring up the pet and its list. */
+/** A toast was clicked: open the chat or raise its terminal window; for a chat that can do neither, bring up the pet and its list. */
 function openFromToast(id) {
   debugLog(`toast clicked ${id.slice(0, 8)}`);
-  if (store.hostIdOf(id)) {
+  const info = store.infoOf(id);
+  if (info && (info.hostSessionId || info.focusable)) {
     jumpTo(id);
     return;
   }
@@ -619,10 +620,7 @@ ipcMain.on('drag-end', () => {
 /** Opens a chat in Claude Desktop and raises the window above whatever covers it. */
 async function jumpTo(id) {
   const url = jumpUrl(store.hostIdOf(id));
-  if (!url) {
-    debugLog(`jump ${id.slice(0, 8)} refused: no desktop session id`);
-    return false;
-  }
+  if (!url) return focusTerminal(id);
   store.dismiss(id);
   setPanel(0);
   push();
@@ -635,6 +633,22 @@ async function jumpTo(id) {
     debugLog(`jump ${id.slice(0, 8)} openExternal failed: ${err.message}`);
   }
   debugLog(`jump ${id.slice(0, 8)} focus: ${await raised}`);
+  return true;
+}
+/**
+ * A chat that does not run in Claude Desktop (a terminal, VS Code): raise the window its process lives in.
+ * A terminal with tabs comes forward as a whole window; the pet cannot pick the tab.
+ */
+async function focusTerminal(id) {
+  const info = store.infoOf(id);
+  if (!info || !info.focusable) {
+    debugLog(`jump ${id.slice(0, 8)} refused: no desktop session id and no window to raise`);
+    return false;
+  }
+  store.dismiss(id);
+  setPanel(0);
+  push();
+  debugLog(`jump ${id.slice(0, 8)} terminal focus: ${await focusWindowOf(info.pid)}`);
   return true;
 }
 ipcMain.on('jump', (_e, id) => {

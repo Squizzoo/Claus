@@ -76,6 +76,7 @@
     const u = showTokens(r) ? r.usage : null;
     const f = PetView.formatTokens;
     const tip = u ? `\nTokens: ${f(u.input)} in · ${f(u.output)} out · ${f(u.cacheWrite)} cache written · ${f(u.cacheRead)} cache read` : '';
+    if (r.terminal) return `${r.name}\n${sub}\nClick to bring its terminal window forward${tip}`;
     return r.jumpable ? `${r.name}\n${sub}${tip}` : `This chat is not in Claude Desktop, so it cannot be opened from here${tip}`;
   }
 
@@ -185,6 +186,7 @@
     li.dataset.jump = r.jumpable ? '1' : '';
     li.tabIndex = 0;
     li.title = r.jumpable ? 'Open this chat' : 'This chat is not in Claude Desktop, so it cannot be opened from here';
+    li.classList.toggle('terminal', Boolean(r.terminal));
 
     const dot = document.createElement('span');
     dot.className = 'dot';
@@ -353,7 +355,7 @@
     const flat = state.prefs.groupBy === 'none';
     const sig = JSON.stringify([flat, view.items.map((i) => (i.type === 'group'
       ? [i.key, i.label, i.count, i.state, i.late, i.muted, i.collapsed]
-      : [i.id, i.name, i.state, i.jumpable, i.overdue, i.muted, i.pinned, i.mutedChat, i.folder, i.tokens, i.since && (i.overdue ? Math.floor((Date.now() - i.since) / 60000) : ago(i.since))]))]);
+      : [i.id, i.name, i.state, i.jumpable, i.terminal, i.overdue, i.muted, i.pinned, i.mutedChat, i.folder, i.tokens, i.since && (i.overdue ? Math.floor((Date.now() - i.since) / 60000) : ago(i.since))]))]);
     if (sig !== listSig) {
       listSig = sig;
       const keep = focusedKey();

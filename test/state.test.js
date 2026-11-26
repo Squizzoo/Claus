@@ -486,3 +486,24 @@ test('dismissing a finished chat does not count as work', () => {
   st.dismissRow(SID);
   assert.deepEqual(st.takeTimes(), { waits: [], work: [] });
 });
+
+test('a chat outside Claude Desktop can be focused through its process; Desktop chats are opened, WSL ones are not focusable', () => {
+  const st = new SessionStore();
+  const A = 'aaaaaaaa-0000-0000-0000-000000000001';
+  const B = 'bbbbbbbb-0000-0000-0000-000000000002';
+  const C = 'cccccccc-0000-0000-0000-000000000003';
+  const D = 'dddddddd-0000-0000-0000-000000000004';
+  st.syncRegistry([
+    { sessionId: A, name: 'terminal', cwd: 'C:\t', status: 'idle', pid: 4321, pidDomain: 'win32:laptop', entrypoint: 'cli' },
+    { sessionId: B, name: 'desktop', cwd: 'C:\d', status: 'idle', pid: 99, pidDomain: 'win32:laptop', hostSessionId: 'local_abc-123' },
+    { sessionId: C, name: 'wsl', cwd: '/home/x', status: 'idle', pid: 55, pidDomain: 'wsl:Ubuntu' },
+    { sessionId: D, name: 'no pid', cwd: 'C:\n', status: 'idle' },
+  ]);
+  const by = Object.fromEntries(st.snapshot().sessions.map((s) => [s.name, s]));
+  assert.deepEqual([by.terminal.jumpable, by.terminal.terminal], [true, true]);
+  assert.deepEqual([by.desktop.jumpable, by.desktop.terminal], [true, false]);
+  assert.deepEqual([by.wsl.jumpable, by.wsl.terminal], [false, false]);
+  assert.deepEqual([by['no pid'].jumpable, by['no pid'].terminal], [false, false]);
+  assert.deepEqual(st.infoOf(A), { sessionId: A, cwd: 'C:\t', hostSessionId: null, pid: 4321, focusable: true, entrypoint: 'cli' });
+  assert.equal(st.infoOf('nope'), null);
+});
