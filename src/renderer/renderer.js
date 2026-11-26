@@ -593,6 +593,11 @@
   };
   petEl.addEventListener('pointerup', finish);
   petEl.addEventListener('pointercancel', finish);
+  // right-click on the pet: the same minimal menu as the tray icon (built in the main process)
+  petEl.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    if (ROLE === 'pet') window.pet.petMenu();
+  });
   petEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') window.pet.togglePanel(wantedHeight(last));
   });

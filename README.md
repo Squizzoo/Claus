@@ -84,7 +84,7 @@ more than one chat has that kind.
 for longer than the patience, the pet turns **angry**: red face, frowning brows,
 an anger mark, a shaking body, `!!` / `?!`, one cross chime, and the chat's row in
 the list says how long it has waited. Answering it calms the pet down. Change the
-patience from the tray icon: *Gets angry after waiting* (1, 2, 5, 10 minutes or never; default 2).
+patience in the settings window (*Behaviour* tab): *Gets angry after waiting* (1, 2, 5, 10 minutes or never; default 2).
 
 **Click a chat:** the chat opens in Claude Desktop and the Claude window is raised
 above whatever covers it (restored if minimised), via `src/focus-claude.ps1`.
@@ -116,7 +116,7 @@ one how long ago it finished. A token count such as `44k tok` sits at the end of
 writes; the tooltip also shows the cache reads). It is read from the chat's own transcript file, see Privacy;
 *Show tokens on each row* in the Behaviour tab turns it off. **Right-click a row** for quick actions: open in Claude (or
 bring its terminal forward), copy the session id, open the project folder, in VS Code or in a terminal (Windows
-Terminal, else PowerShell), pin and mute. The *Today* tab of the settings window (and a line in the tray menu) sums up
+Terminal, else PowerShell), pin and mute. The *Today* tab of the settings window sums up
 the day: chats finished, how often and how long chats waited on you, the longest wait, and the time Claude spent
 working.
 
@@ -129,8 +129,8 @@ one), volume, quiet hours and mute; the *Notifications* tab has snooze, Windows 
 auto-hide; the *Behaviour* tab has how long the pet waits before it gets angry and the
 finished-today counter and the token counts; the *Window* tab has snapping, monitors, fullscreen and click-through;
 the *System* tab has the Claude Code hooks, start with Windows, following Claude Desktop and updates;
-the *Today* tab has the day's numbers. *Size* and *Opacity* are under *Appearance*. The tray menu (right-click the tray icon) still has every setting except the mustache, plus *Settings...*
-to open the window; both always show the same values. Everything is remembered.
+the *Today* tab has the day's numbers. *Size* and *Opacity* are under *Appearance*. Everything is remembered.
+The right-click menu (on the tray icon or on the pet) is deliberately short, see below.
 
 - **Pet:** cat, dog, bunny, bird, penguin, owl, dragon, sprout, blob, ghost, robot, alien, car, sun, moon
   or cloud. Every pet has art for every mood above (sleeping, calm, working, happy, question,
@@ -170,7 +170,13 @@ downloaded until you press *Download*, and *Restart to update* installs it. You 
 
 **Settings and data** stay in `%APPDATA%\claude-pet` for every way of running Claus (source checkout, installer, portable).
 
-**Hide while Claude Desktop is not running** (*System* tab, also in the tray) replaces the old watcher for the installed
+**Notice replies in the Chat tab** (*System* tab, off by default). Claude Desktop's normal Chat tab has no hooks, so Claus watches its
+*Stop response* button through Windows UI Automation (no message text is read) and treats a reply that starts and stops like any other chat:
+a row, a chime and a finished count. Limits, found by testing: it only works while the Claude window is on screen and not covered by other
+windows (a second monitor, or side by side), because Windows stops a covered window from updating; and it only sees the conversation on
+screen, so a reply is lost when you open another tab in Claude. Clicking such a row brings Claude forward. Cowork is not covered.
+
+**Hide while Claude Desktop is not running** (*System* tab) replaces the old watcher for the installed
 app: the pet hides when Claude Desktop is not running (two checks in a row, 3 seconds apart) and slides back when it opens. Claus itself
 keeps running with its tray icon; use *Start with Windows* to have it there from the start. The watcher scripts below stay for a source checkout.
 
@@ -186,13 +192,12 @@ node scripts/hooks.js install --apply    # writes the hooks (backup: settings.js
 
 Hooks are read by chats at start, so restart chats that were already open.
 Remove them any time with `node scripts/hooks.js uninstall --apply`.
-Tray icon: settings window, reset position, pet, colour, accessory, size, opacity, snap, monitors, above fullscreen, click-through,
-sound pack, volume, quiet hours, mute sounds, anger patience, finished-today counter, snooze, toasts, repeat reminder, auto-hide,
-hide while Claude Desktop is not running, start with Windows and updates (installed version), clear finished, quit.
+Right-click menu (the tray icon or the pet): *Settings...*, *Show pet*, *Snooze*, *Mute sounds*, *Clear finished*, *Reset position* and *Quit*.
+A warning (when opening a chat seems broken) and *Restart to update* appear in it only while they apply. Everything else is in the settings window.
 
 ## Smarter notifications
 
-All of this is in the settings window (*Notifications* tab) and the tray menu.
+All of this is in the settings window (*Notifications* tab); snooze is also in the right-click menu.
 
 - **Snooze** (15 minutes or 1 hour): no sound, no toast and no repeat reminder. The pet still shows its chips,
   badge and anger, and the list header says "snoozed until 14:30". It survives a restart and ends by itself.
@@ -212,7 +217,7 @@ All of this is in the settings window (*Notifications* tab) and the tray menu.
 
 ## Size, position and screens
 
-All of this is in the settings window (*Appearance* and *Window* tabs) and the tray menu.
+All of this is in the settings window (*Appearance* and *Window* tabs); *Reset position* is in the right-click menu.
 
 - **Size:** small, medium, large or extra large (100, 150, 200 or 250 px). Changing it resizes the pet's window once
   (the pet blinks once) around its centre; the pet, its chips, badge and confetti scale together. The chat list is unchanged.
@@ -333,8 +338,7 @@ shared generator draws the eyes and mouth for every mood. To add a pet, add one 
 The pet art is styled by `src/renderer/pet.css`, which only uses classes, so the pet window and the settings window
 (gallery cards and the live preview) share it; the settings window is `settings.html` / `settings.js` and draws pets
 with the same `PetArt.buildPet` as the real pet. Notification settings (toasts, reminder, auto-hide, snooze) and their decisions are pure and live in `src/notify.js`;
-`src/toast.js` is the thin Electron wrapper. A new setting goes into `src/look.js` (validation), the tray in
-`main.js` and a control in `settings.js`.
+`src/toast.js` is the thin Electron wrapper. A new setting goes into `src/look.js` (validation), a control in `settings.js`. The right-click menu is a pure list in `src/tray-menu.js` with a test that pins its exact items; keep it minimal.
 
 The list logic (filter, group, sort, pins) lives in `src/renderer/view.js` and is unit tested;
 the DOM around it is not. Clicks and keys are tested with real input events over the DevTools

@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('pet', {
   snooze: (minutes) => ipcRenderer.send('snooze', minutes),
   setPlace: (patch) => ipcRenderer.send('set-place', patch),
   petGrab: () => ipcRenderer.send('pet-grab'),
+  petMenu: () => ipcRenderer.send('pet-menu'),
   setSystem: (patch) => ipcRenderer.send('set-system', patch),
   hooksAction: (action) => ipcRenderer.send('hooks-action', action),
   updateAction: (what) => ipcRenderer.send('update-action', what),
