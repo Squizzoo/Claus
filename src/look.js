@@ -13,11 +13,23 @@ const QUIET = {
 };
 const QUIET_ORDER = ['off', 'night', 'late', 'evening'];
 
+// The pet window is a square of this many pixels. The art is drawn at 150 and scaled by the renderer.
+const SIZES = {
+  s: { label: 'Small', px: 100 },
+  m: { label: 'Medium', px: 150 },
+  l: { label: 'Large', px: 200 },
+  xl: { label: 'Extra large', px: 250 },
+};
+const SIZE_ORDER = ['s', 'm', 'l', 'xl'];
+const OPACITIES = [100, 85, 70, 50, 30]; // percent; the list window always stays fully opaque
+
 const DEFAULTS = {
   pet: PetArt.DEFAULT_PET,
   skin: 'default',
   accessory: 'none',
   mustache: 'none',
+  size: 'm',
+  opacity: 100,
   pack: PetSounds.DEFAULT_PACK,
   volume: PetSounds.DEFAULT_VOLUME,
   quiet: 'off',
@@ -32,12 +44,19 @@ function choices() {
     skin: PetArt.SKIN_ORDER,
     accessory: PetArt.ACCESSORY_ORDER,
     mustache: PetArt.MUSTACHE_ORDER,
+    size: SIZE_ORDER,
+    opacity: OPACITIES,
     pack: PetSounds.PACK_ORDER,
     volume: PetSounds.VOLUMES,
     quiet: QUIET_ORDER,
     streak: [true, false],
     showTokens: [true, false],
   };
+}
+
+/** Window size in pixels for a size id (the default size for anything unknown). */
+function sizePx(id) {
+  return (SIZES[id] || SIZES[DEFAULTS.size]).px;
 }
 
 /** Returns the look with every field valid; unknown keys are dropped. */
@@ -82,4 +101,4 @@ function isQuiet(date, quietId) {
   return q.from < q.to ? h >= q.from && h < q.to : h >= q.from || h < q.to;
 }
 
-module.exports = { DEFAULTS, sanitize, merge, choices, isQuiet, QUIET, QUIET_ORDER, PATIENCE, BEHAVIOUR_DEFAULTS, sanitizeBehaviour };
+module.exports = { DEFAULTS, sanitize, merge, choices, isQuiet, QUIET, QUIET_ORDER, PATIENCE, BEHAVIOUR_DEFAULTS, sanitizeBehaviour, SIZES, SIZE_ORDER, OPACITIES, sizePx };
