@@ -40,6 +40,13 @@ patience from the tray icon: *Gets angry after waiting* (1, 2, 5, 10 minutes or 
 **Click a chat:** the chat opens in Claude Desktop and the Claude window is raised
 above whatever covers it (restored if minimised), via `src/focus-claude.ps1`.
 
+**Open a chat yourself:** a finished chat you open in Claude Desktop (without using the pet) is
+cleared too, as soon as it has been in front for a second or two. The pet reads the open chat's
+id from the Claude window through Windows UI Automation (`src/open-chat.ps1`), and only asks while
+a finished chat is waiting. Side effect: this switches on Chromium accessibility inside Claude
+Desktop until it restarts, which costs it a little extra work. Questions and approvals are never
+cleared this way, since opening the chat does not answer them.
+
 **The list:** chats are grouped by project (collapsible; a collapsed project still shows
 its most urgent colour). Type in the search box, or press `/`, to filter by chat or project;
 arrow keys move, Enter opens the first match, Esc clears the search and then closes the list.

@@ -7,6 +7,7 @@ const { readRegistry } = require('./registry');
 const { createServer, DEFAULT_PORT } = require('./server');
 const { jumpUrl } = require('./jump');
 const { focusClaude } = require('./focus');
+const { createOpenChatWatcher } = require('./open-chat');
 const prefsLib = require('./prefs');
 
 const PORT = Number(process.env.CLAUDE_PET_PORT) || DEFAULT_PORT;
@@ -18,6 +19,7 @@ const MARGIN = 16;
 if (!app.requestSingleInstanceLock()) app.quit();
 
 const store = new SessionStore();
+const openChat = createOpenChatWatcher();
 let win = null; // the pet: always PET x PET, never resized (resizing a transparent window blinks it)
 let panelWin = null; // the chat list: its own window next to the pet, shown and hidden
 let tray = null;
@@ -367,6 +369,34 @@ app.whenReady().then(async () => {
   setInterval(poll, 2000);
   setInterval(() => store.tickOverdue() && push(), 5000); // the pet turns angry when you keep it waiting
 
+  // Opening a finished chat in Claude Desktop (not through the pet) counts as seeing it. Only asked
+  // while a finished chat is waiting, so the helper is idle the rest of the time.
+  if (!SHOT_RUN) {
+    let checking = false;
+    let lastSeen; // only changes are logged
+    setInterval(async () => {
+      if (checking) return;
+      if (!store.hasOpenableDone()) {
+        store.markViewing(null);
+        return;
+      }
+      checking = true;
+      try {
+        const hostId = await openChat.query();
+        if (hostId !== lastSeen) {
+          lastSeen = hostId;
+          debugLog(`open chat in Claude: ${hostId ? hostId.slice(0, 14) : 'none'}`);
+        }
+        if (store.markViewing(hostId)) {
+          debugLog(`seen in Claude: ${hostId.slice(0, 14)}`);
+          push();
+        }
+      } finally {
+        checking = false;
+      }
+    }, 1000);
+  }
+
   // Dev aid: CLAUDE_PET_SELFTEST_JUMP=<part of a chat name> jumps to that chat 3 s after start,
   // exactly like clicking its row, and logs the result (needs CLAUDE_PET_LOG=1).
   if (process.env.CLAUDE_PET_SELFTEST_JUMP) {
@@ -387,4 +417,7 @@ app.whenReady().then(async () => {
 
 app.on('second-instance', () => win && win.showInactive());
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => server && server.close());
+app.on('before-quit', () => {
+  openChat.stop();
+  if (server) server.close();
+});
