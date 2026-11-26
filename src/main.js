@@ -1,5 +1,6 @@
 'use strict';
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard } = require('electron');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { SessionStore } = require('./state');
@@ -18,6 +19,7 @@ const dailyLib = require('./daily');
 const notifyLib = require('./notify');
 const { showToast } = require('./toast');
 const { createTranscriptReader } = require('./transcript');
+const { rowMenuTemplate, vscodeUrl, terminalCommand } = require('./row-menu');
 
 const PORT = Number(process.env.CLAUDE_PET_PORT) || DEFAULT_PORT;
 const PET = 150; // collapsed window: the pet only
@@ -181,7 +183,7 @@ function createWindow() {
   // The list closes when focus goes somewhere else. Clicking the pet moves focus between our own
   // two windows, so wait a moment and look: the pet's own click (toggle-panel) decides in that case.
   const closeWhenAway = () => setTimeout(() => {
-    if (panelH > 0 && !drag && !win.isFocused() && !panelWin.isFocused()) {
+    if (panelH > 0 && !drag && !rowMenuOpen && !win.isFocused() && !panelWin.isFocused()) {
       debugLog('focus left the pet: closing the list');
       setPanel(0);
     }
@@ -655,6 +657,69 @@ ipcMain.on('jump', (_e, id) => {
   debugLog(`ipc jump ${String(id).slice(0, 8)}`);
   jumpTo(String(id));
 });
+// ---------- right-click menu of a row ----------
+let rowMenuOpen = false; // the list must not close just because the menu took focus
+
+const isFolder = (p) => {
+  try {
+    return path.isAbsolute(p) && fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+/** Windows Terminal in the folder, or plain PowerShell when it is not installed. Started without a shell, detached. */
+function openTerminalIn(cwd) {
+  const wt = terminalCommand(cwd);
+  if (!wt) return;
+  const start = (cmd, args, opts) => {
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore', ...opts });
+    child.unref();
+    return child;
+  };
+  const fallback = () => start('powershell.exe', ['-NoExit'], { cwd });
+  try {
+    start(wt.cmd, wt.args).on('error', fallback);
+  } catch {
+    fallback();
+  }
+}
+
+/** What each menu item does. `info` comes from the store, never from the renderer: the renderer only says which chat. */
+const rowActions = {
+  open: (id) => jumpTo(id),
+  focus: (id) => jumpTo(id),
+  'copy-id': (id, info) => clipboard.writeText(info.sessionId),
+  folder: (id, info) => isFolder(info.cwd) && shell.openPath(info.cwd),
+  vscode: (id, info) => {
+    const url = isFolder(info.cwd) && vscodeUrl(info.cwd);
+    if (url) shell.openExternal(url).catch(() => {});
+  },
+  terminal: (id, info) => isFolder(info.cwd) && openTerminalIn(info.cwd),
+  pin: (id) => updatePrefs({ pinned: toggled(settings.prefs.pinned, id) }),
+  mute: (id) => updatePrefs({ mutedChats: toggled(settings.prefs.mutedChats, id) }),
+};
+const toggled = (arr, v) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+
+ipcMain.on('row-menu', (_e, id) => {
+  id = String(id);
+  const info = store.infoOf(id);
+  if (!info || !panelWin || panelWin.isDestroyed()) return;
+  debugLog(`ipc row-menu ${id.slice(0, 8)}`);
+  const template = rowMenuTemplate(info, settings.prefs).map((item) => {
+    if (!item.id) return item;
+    return {
+      label: item.label,
+      click: () => {
+        debugLog(`row-menu ${item.id} ${id.slice(0, 8)}`);
+        rowActions[item.id](id, info);
+      },
+    };
+  });
+  rowMenuOpen = true;
+  Menu.buildFromTemplate(template).popup({ window: panelWin, callback: () => { rowMenuOpen = false; } });
+});
+
 // The x on a row: finished -> idle, idle -> hidden. Both can be undone.
 ipcMain.on('dismiss', (_e, id) => {
   debugLog(`ipc dismiss ${String(id).slice(0, 8)}`);

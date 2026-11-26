@@ -420,6 +420,12 @@
     if (!down || !up || down.type !== up.type || down.id !== up.id || down.key !== up.key || down.act !== up.act) return; // released somewhere else
     act(up);
   });
+  // right-click on a chat: its quick actions (a native menu, built in the main process)
+  list.addEventListener('contextmenu', (e) => {
+    const h = hit(e);
+    e.preventDefault();
+    if (h && h.type === 'row' && h.id) window.pet.rowMenu(h.id);
+  });
   list.addEventListener('keydown', (e) => {
     if (e.target.closest('input')) return;
     const h = hit(e);
