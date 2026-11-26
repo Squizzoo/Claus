@@ -169,6 +169,12 @@
   let opacityButtons = [];
   let snapButtons = [];
   let monitorButtons = [];
+  $('login').addEventListener('change', (e) => window.pet.setSystem({ login: e.target.checked }));
+  $('follow-claude').addEventListener('change', (e) => window.pet.setSystem({ followClaude: e.target.checked }));
+  $('hooks-install').addEventListener('click', () => window.pet.hooksAction('install'));
+  $('hooks-remove').addEventListener('click', () => window.pet.hooksAction('uninstall'));
+  $('update-check').addEventListener('click', () => window.pet.updateAction('check'));
+  $('update-go').addEventListener('click', () => window.pet.updateAction($('update-go').dataset.action));
   $('fullscreen').addEventListener('change', (e) => place({ fullscreen: e.target.checked }));
   $('click-through').addEventListener('change', (e) => place({ clickThrough: e.target.checked }));
   /** Placement changes go to their own message; shown at once, confirmed by the state that comes back. */
@@ -299,6 +305,41 @@
       }
     }
     $('today').textContent = String(st.finishedToday);
+    renderSystem(st.system, st.jump);
+  }
+
+  const JUMP_NOTES = {
+    broken: 'Opening a chat from the list no longer seems to work: Claude Desktop may have changed the way chats are opened. The list still shows your chats.',
+    unverified: 'Claude Desktop was updated. Opening chats from the list has not been checked since; it is checked the next time you open one.',
+  };
+  /** The System tab: hooks, start with Windows, Claude Desktop and updates. Buttons that this build cannot use are disabled, with the reason. */
+  function renderSystem(sys, jump) {
+    const jn = $('jump-note');
+    jn.hidden = !(jump && JUMP_NOTES[jump.status]);
+    if (!jn.hidden) jn.textContent = `${JUMP_NOTES[jump.status]}${jump.version ? ` (Claude ${jump.version}${jump.okVersion && jump.okVersion !== jump.version ? `, last worked with ${jump.okVersion}` : ''})` : ''}`;
+    if (!sys) return;
+    const h = sys.hooks;
+    const hs = $('hooks-state');
+    hs.className = h.complete ? 'status' : 'status warn';
+    hs.textContent = !h.exists
+      ? `Claude Code's settings file was not found or cannot be read (${h.error || 'unknown'}): ${h.file}`
+      : h.complete ? `Installed (${h.installed} of ${h.total} entries) in ${h.file}` : h.installed ? `Partly installed (${h.installed} of ${h.total} entries): install again to complete it. ${h.file}` : `Not installed: the pet cannot hear from Claude Code yet. ${h.file}`;
+    $('hooks-install').disabled = !h.exists || h.complete;
+    $('hooks-remove').disabled = !h.exists || h.installed === 0;
+    $('login').checked = sys.login;
+    $('login').disabled = !sys.loginAvailable;
+    $('login-hint').textContent = sys.loginAvailable ? 'Start Claus when you sign in to Windows.' : sys.portable ? 'The portable version has no fixed place to start from. Use the installer to start with Windows.' : 'Only the installed version can start with Windows (this one runs from a source folder).';
+    $('follow-claude').checked = sys.followClaude;
+    const u = sys.update;
+    $('update-state').textContent = u.text || (sys.updatesAvailable ? '' : 'Updates work in the installed version only.');
+    $('update-check').disabled = !sys.updatesAvailable || u.status === 'checking' || u.status === 'downloading';
+    const go = $('update-go');
+    const action = u.status === 'available' ? 'download' : u.status === 'ready' ? 'install' : '';
+    go.hidden = !action;
+    go.dataset.action = action;
+    go.className = 'btn primary';
+    go.textContent = action === 'download' ? `Download version ${u.version}` : 'Restart to update';
+    $('version').textContent = `Claus ${sys.version}${sys.portable ? ' (portable)' : sys.packaged ? '' : ' (development)'}`;
   }
 
   window.pet.onSettingsState((s) => {

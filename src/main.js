@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard, dialog } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -19,6 +19,9 @@ const dailyLib = require('./daily');
 const notifyLib = require('./notify');
 const placeLib = require('./placement');
 const jumpHealthLib = require('./jump-health');
+const systemLib = require('./system');
+const hooksLib = require('./hooks-install');
+const updaterLib = require('./updater');
 const { createClaudeWatcher } = require('./claude-running');
 const { showToast } = require('./toast');
 const { createTranscriptReader } = require('./transcript');
@@ -30,6 +33,9 @@ const PANEL_W = 300; // expanded window width
 const MAX_PANEL = 480; // tallest list the window will grow to
 const MARGIN = 16;
 
+// The settings folder is always %APPDATA%\claude-pet, whatever the app is called when packaged (a productName would otherwise move it to
+// %APPDATA%\Claus and lose position, look, pins and stats). A test run with --user-data-dir keeps its own folder.
+if (!app.commandLine.hasSwitch('user-data-dir')) app.setPath('userData', path.join(app.getPath('appData'), 'claude-pet'));
 if (!app.requestSingleInstanceLock()) app.quit();
 app.setAppUserModelId('com.claus.pet'); // gives the Windows toasts a stable identity
 
@@ -42,7 +48,7 @@ let settingsWin = null; // the settings window (a normal window, opened by doubl
 let rebuildTray = () => {}; // set by buildTray; called when a setting changes elsewhere so the tray checkmarks stay right
 let tray = null;
 let server = null;
-let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, notify: notifyLib.DEFAULTS, place: placeLib.DEFAULTS, jumpHealth: jumpHealthLib.EMPTY, streak: celebrateLib.EMPTY, daily: dailyLib.EMPTY }; // impatientMin 0 = never angry
+let settings = { x: null, y: null, muted: false, impatientMin: 2, prefs: prefsLib.DEFAULTS, look: lookLib.DEFAULTS, notify: notifyLib.DEFAULTS, place: placeLib.DEFAULTS, system: systemLib.DEFAULTS, jumpHealth: jumpHealthLib.EMPTY, streak: celebrateLib.EMPTY, daily: dailyLib.EMPTY }; // impatientMin 0 = never angry
 let petPos = { x: 0, y: 0 }; // top-left of the pet, the source of truth for position
 let panelH = 0; // extra height wanted by the list (0 = collapsed)
 let layout = { side: 'right', vertical: 'up' };
@@ -62,6 +68,7 @@ function loadSettings() {
   settings.notify = notifyLib.sanitize(settings.notify);
   settings.place = placeLib.sanitize(settings.place);
   PET = lookLib.sizePx(settings.look.size);
+  settings.system = systemLib.sanitize(settings.system);
   settings.jumpHealth = jumpHealthLib.sanitize(settings.jumpHealth);
   jumpHealth = settings.jumpHealth;
   settings.streak = celebrateLib.sanitizeStreak(settings.streak);
@@ -480,6 +487,7 @@ function updateAutoHide(snap) {
     settingsOpen: Boolean(settingsWin && !settingsWin.isDestroyed()),
     manualShowUntil,
     lastNeedAt,
+    forceHide: settings.system.followClaude && claudeIsGone,
     now,
   });
   if (decision === 'show') {
@@ -563,6 +571,153 @@ function setSnooze(minutes) {
   updateNotify({ snoozeUntil: notifyLib.snoozeEnd(Number(minutes)) });
 }
 
+// ---------- system: hooks, start with Windows, follow Claude Desktop, updates ----------
+const FORCE_SETUP = process.argv.includes('--setup'); // ask the first-run question even from a dev checkout
+const IS_PORTABLE = Boolean(process.env.PORTABLE_EXECUTABLE_DIR); // set by the portable exe
+const caps = () => systemLib.capabilities({ packaged: app.isPackaged, portable: IS_PORTABLE });
+
+let hooksCache = { at: 0, value: null };
+/** The state of the pet's hooks in Claude Code's settings file; read at most every few seconds (it is part of every settings push). */
+function hooksStatus(fresh = false) {
+  const now = Date.now();
+  if (fresh || !hooksCache.value || now - hooksCache.at > 5000) hooksCache = { at: now, value: hooksLib.status({ port: PORT }) };
+  return hooksCache.value;
+}
+
+/**
+ * Adds or removes the pet's hooks in ~/.claude/settings.json, after the user has seen what changes and said yes in a dialog.
+ * Resolves with 'done', 'cancelled', 'unchanged' or 'failed'. The file is backed up first; other hooks are never touched.
+ */
+async function changeHooks(action, parent) {
+  const box = (options) => {
+    const p = parent && !parent.isDestroyed() ? parent : null;
+    return p ? dialog.showMessageBox(p, options) : dialog.showMessageBox(options);
+  };
+  let plan;
+  try {
+    plan = hooksLib.plan({ action, port: PORT });
+  } catch (err) {
+    debugLog(`hooks ${action} not possible: ${err.message}`);
+    await box({ type: 'error', title: 'Claus', message: 'Claude Code settings could not be changed', detail: `${hooksLib.defaultFile()}\n\n${err.message}` });
+    return 'failed';
+  }
+  if (!plan.changed) return 'unchanged';
+  const installing = action === 'install';
+  const { response } = await box({
+    type: 'question',
+    title: 'Claus',
+    buttons: [installing ? 'Install hooks' : 'Remove hooks', 'Not now'],
+    defaultId: 0,
+    cancelId: 1,
+    message: installing ? 'Let Claus hear from Claude Code?' : 'Remove the Claus hooks from Claude Code?',
+    detail: installing
+      ? `Claus needs a few hooks in Claude Code's settings file to know when a chat finishes or asks something:\n\n${plan.file}\n\n` +
+        `It adds ${plan.petEvents.length} entries (${plan.petEvents.join(', ')}) that only POST to this computer (127.0.0.1:${plan.port}). ` +
+        `Your own hooks stay as they are, and a backup is saved next to the file as settings.json.pet-bak.\n\n` +
+        `Claus keeps only the chat id, the event name, the tool name and the folder; prompts and tool input are dropped.`
+      : `This removes only the Claus entries from:\n\n${plan.file}\n\nYour other hooks stay, and a backup is saved as settings.json.pet-bak. The pet will stop hearing from Claude Code until you install them again.`,
+  });
+  if (response !== 0) return 'cancelled';
+  try {
+    hooksLib.apply(plan);
+    debugLog(`hooks ${action} done`);
+  } catch (err) {
+    debugLog(`hooks ${action} failed: ${err.message}`);
+    await box({ type: 'error', title: 'Claus', message: 'Claude Code settings could not be changed', detail: err.message });
+    return 'failed';
+  }
+  hooksStatus(true);
+  sendSettings(true);
+  return 'done';
+}
+
+/** The very first start of an installed build: offer the hooks once (never nags again, whatever the answer was). */
+async function firstRun() {
+  const st = hooksStatus(true);
+  if (!systemLib.shouldAskSetup({ settings: settings.system, firstRun: caps().firstRun, forced: FORCE_SETUP, hooksComplete: st.complete, hooksFileExists: st.exists })) return;
+  settings.system = systemLib.merge(settings.system, { setupAsked: true });
+  saveSettings();
+  debugLog('first run: offering the hooks');
+  await changeHooks('install', null);
+}
+
+function updateSystem(patch) {
+  const before = settings.system;
+  settings.system = systemLib.merge(settings.system, patch);
+  if (settings.system.login !== before.login && caps().login) {
+    try {
+      app.setLoginItemSettings({ openAtLogin: settings.system.login });
+    } catch (err) {
+      debugLog(`login item failed: ${err.message}`);
+    }
+  }
+  if (settings.system.followClaude !== before.followClaude) {
+    claudeMisses = 0;
+    claudeIsGone = false;
+    if (settings.system.followClaude) pollClaude();
+  }
+  saveSettings();
+  rebuildTray();
+  push();
+}
+
+// Follow Claude Desktop: while it is not running the pet hides (the app and the tray stay), and it comes back with Claude.
+let claudeMisses = 0;
+let claudeIsGone = false;
+let pollingClaude = false;
+async function pollClaude() {
+  if (!settings.system.followClaude || pollingClaude || SHOT_RUN) return;
+  pollingClaude = true;
+  try {
+    claudeMisses = systemLib.missesAfter(claudeMisses, await claudeWatcher().state());
+    const gone = systemLib.claudeGone(claudeMisses);
+    if (gone !== claudeIsGone) {
+      claudeIsGone = gone;
+      debugLog(`claude desktop ${gone ? 'gone: hiding the pet' : 'is back'}`);
+      updateAutoHide(store.snapshot());
+    }
+  } finally {
+    pollingClaude = false;
+  }
+}
+
+const updater = updaterLib.createUpdater({
+  supported: app.isPackaged && !IS_PORTABLE && !SHOT_RUN,
+  onChange: () => {
+    rebuildTray();
+    sendSettings(true);
+  },
+  log: debugLog,
+});
+function updateAction(what) {
+  if (what === 'check') updater.check();
+  else if (what === 'download') updater.download();
+  else if (what === 'install') updater.install();
+}
+
+function systemSnapshot() {
+  const c = caps();
+  const u = updater.state();
+  const h = hooksStatus();
+  let login = false;
+  try {
+    login = c.login ? app.getLoginItemSettings().openAtLogin : false;
+  } catch {
+    /* not available */
+  }
+  return {
+    followClaude: settings.system.followClaude,
+    login,
+    loginAvailable: c.login,
+    updatesAvailable: c.updates,
+    version: app.getVersion(),
+    portable: IS_PORTABLE,
+    packaged: app.isPackaged,
+    hooks: { exists: h.exists, installed: h.installed, total: Object.keys(hooksLib.EVENTS).length, complete: h.complete, file: h.file, error: h.error || '' },
+    update: { status: u.status, version: u.version, percent: u.percent, text: updaterLib.describe(u) },
+  };
+}
+
 // ---------- settings window ----------
 /** What the settings window shows: the look, the other settings and the choices it offers for them. */
 function settingsSnapshot() {
@@ -582,6 +737,7 @@ function settingsSnapshot() {
     place: settings.place,
     placeChoices: { snap: placeLib.SNAP, monitor: placeLib.MONITOR },
     jump: { status: jumpHealthLib.status(jumpHealth), version: jumpHealth.version, okVersion: jumpHealth.okVersion },
+    system: systemSnapshot(),
   };
 }
 let lastSettingsSent = '';
@@ -973,6 +1129,14 @@ function updatePlace(patch) {
   push();
 }
 ipcMain.on('set-place', (_e, patch) => updatePlace(patch));
+ipcMain.on('set-system', (_e, patch) => {
+  const { login, followClaude } = patch && typeof patch === 'object' ? patch : {};
+  updateSystem({ login, followClaude }); // setupAsked is the app's own business
+});
+ipcMain.on('hooks-action', (_e, action) => {
+  if (action === 'install' || action === 'uninstall') changeHooks(action, settingsWin);
+});
+ipcMain.on('update-action', (_e, what) => updateAction(what));
 ipcMain.on('snooze', (_e, minutes) => setSnooze(minutes));
 ipcMain.on('preview-sound', (_e, req) => previewSound(req));
 
@@ -981,6 +1145,16 @@ const JUMP_WARNINGS = {
   broken: 'Opening a chat from the list no longer seems to work (Claude Desktop may have changed)',
   unverified: 'Claude Desktop was updated: opening chats has not been checked yet',
 };
+/** Tray entries about updates: nothing at all for builds that cannot update. */
+function updateTrayItems() {
+  if (!caps().updates) return [];
+  const u = updater.state();
+  const items = [{ label: updaterLib.describe(u) || 'Check for updates', enabled: false }];
+  if (u.status === 'available') items.push({ label: 'Download the update', click: () => updater.download() });
+  else if (u.status === 'ready') items.push({ label: 'Restart to update', click: () => updater.install() });
+  else if (u.status !== 'checking' && u.status !== 'downloading') items.push({ label: 'Check for updates', click: () => updater.check() });
+  return items;
+}
 function buildTray() {
   const img = nativeImage.createFromPath(path.join(__dirname, 'renderer', 'tray.png'));
   tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img);
@@ -994,6 +1168,9 @@ function buildTray() {
         ...(warning ? [{ label: `⚠ ${warning}`, click: () => openSettings() }, { type: 'separator' }] : []),
         { label: 'Settings...', click: () => openSettings() },
         { label: 'Show pet', click: () => showPet(false, 30_000) },
+        ...(caps().login ? [{ label: 'Start with Windows', type: 'checkbox', checked: systemSnapshot().login, click: (i) => updateSystem({ login: i.checked }) }] : []),
+        { label: 'Hide while Claude Desktop is not running', type: 'checkbox', checked: settings.system.followClaude, click: (i) => updateSystem({ followClaude: i.checked }) },
+        ...updateTrayItems(),
         { label: 'Reset position', click: () => { petPos = defaultPos(); settings.x = petPos.x; settings.y = petPos.y; saveSettings(); applyBounds(); push(); } },
         { label: 'Pet', submenu: PetArt.ORDER.map((id) => ({ label: PetArt.PETS[id].label, type: 'radio', checked: settings.look.pet === id, click: () => updateLook({ pet: id }) })) },
         { label: 'Colour', submenu: PetArt.SKIN_ORDER.map((id) => ({ label: PetArt.SKINS[id].label, type: 'radio', checked: settings.look.skin === id, click: () => updateLook({ skin: id }) })) },
@@ -1073,6 +1250,12 @@ app.whenReady().then(async () => {
   if (!SHOT_RUN) {
     // which monitor the window the user works in is on (only asked while "follow" is on), and which Claude version runs (every few minutes)
     setInterval(followActiveMonitor, 1000);
+    setInterval(pollClaude, 3000);
+    if (caps().updates) {
+      setTimeout(() => updater.check(), 10_000);
+      setInterval(() => updater.check(), 6 * 3600_000);
+    }
+    setTimeout(() => firstRun().catch((err) => debugLog(`first run failed: ${err.message}`)), 2500);
     setTimeout(() => readClaudeVersion().catch(() => {}), 5000);
     setInterval(() => readClaudeVersion().catch(() => {}), 5 * 60_000);
   }

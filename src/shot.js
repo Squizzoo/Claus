@@ -141,8 +141,10 @@ async function settingsShots(prefix, { openSettings, setLook, store, push }) {
   await snap('5-behaviour');
   await click('#tab-btn-window');
   await snap('6-window');
+  await click('#tab-btn-system');
+  await snap('7-system');
   await click('#tab-btn-today');
-  await snap('7-today');
+  await snap('8-today');
   setLook({ pet: 'cat', skin: 'default', accessory: 'none', mustache: 'none' });
   w.destroy();
 }

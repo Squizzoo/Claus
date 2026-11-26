@@ -1,9 +1,9 @@
 'use strict';
 // Raises a window above whatever covers it (Windows only).
 const { execFile } = require('child_process');
-const path = require('path');
+const { helperScript } = require('./paths');
 
-const SCRIPT = path.join(__dirname, 'focus-claude.ps1');
+const SCRIPT = helperScript('focus-claude.ps1');
 const BASE = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', SCRIPT];
 
 /** The helper's arguments for the window a process runs in (a terminal, VS Code), or null when `pid` is not a usable process id. */
