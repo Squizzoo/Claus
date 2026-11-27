@@ -1,6 +1,6 @@
 {
   "name": "claude-pet",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A floating desktop pet that tells you when any Claude chat has finished, has a question or needs your input.",
   "homepage": "https://github.com/Squizzoo/Claus",
   "license": "MIT",
