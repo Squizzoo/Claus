@@ -419,7 +419,10 @@ test('lastActive follows hooks and the registry, and a hook that changes nothing
   assert.equal(st.applyHook(hook('UserPromptSubmit')), true);
   assert.equal(st.takeActivity(), false);
   c.advance(4_000);
-  assert.equal(st.applyHook(hook('PostToolUse', { tool_name: 'Read' })), false); // still working
+  assert.equal(st.applyHook(hook('PostToolUse', { tool_name: 'Read' })), true); // still working, but now reading instead of thinking
+  st.takeActivity();
+  c.advance(1_000);
+  assert.equal(st.applyHook(hook('PostToolUse', { tool_name: 'Grep' })), false); // still working, still reading
   assert.equal(st.snapshot().sessions[0].lastActive, c.t);
   assert.equal(st.takeActivity(), true);
   assert.equal(st.takeActivity(), false); // reported once
@@ -661,4 +664,30 @@ test('a tool you approved keeps its activity when it starts running', () => {
   assert.equal(st.snapshot().doing, 'run');
   st.applyHook(hook('PostToolUse', { tool_name: 'Bash' }));
   assert.equal(st.snapshot().doing, 'run');
+});
+
+test('a real chat shows what it does through PostToolUse, the only tool hook installed for every tool', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  assert.equal(st.snapshot().doing, 'think');
+  const seen = [];
+  for (const tool of ['Read', 'Edit', 'Bash', 'WebSearch', 'Agent', 'mcp__x__y']) {
+    c.advance(500);
+    st.applyHook(hook('PostToolUse', { tool_name: tool }));
+    seen.push(st.snapshot().doing);
+  }
+  assert.deepEqual(seen, ['read', 'type', 'run', 'web', 'think', 'work']);
+  st.applyHook(hook('Stop'));
+  assert.equal(st.snapshot().doing, '');
+});
+
+test('answering a question does not change what the chat was doing', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('PostToolUse', { tool_name: 'Edit' }));
+  st.applyHook(hook('PreToolUse', { tool_name: 'AskUserQuestion' }));
+  assert.equal(st.snapshot().mood, 'question');
+  st.applyHook(hook('PostToolUse', { tool_name: 'AskUserQuestion' })); // you answered
+  assert.deepEqual([st.snapshot().mood, st.snapshot().doing], ['working', 'type']);
 });

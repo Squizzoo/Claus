@@ -303,10 +303,12 @@
   }
 
   // ---------- idle animations ----------
-  // Only the pet window, only while the pet is calm: every so often it stretches, yawns, looks around or wags.
+  // Only the pet window: every so often a calm pet stretches, yawns, looks around or wags, and a working one does something that suits
+  // what its chats are doing (props.js WORK_ACTIONS). The temperament sets how often.
   let idleAct = ''; // class of the action in progress ('' = none)
   let idleTimer = null;
-  let idleWanted = false;
+  let idleMode = ''; // 'idle', 'working' or '' (no actions)
+  let workNow = { doing: '', busy: false, marathon: false }; // what a working pet picks its actions from
   const stopIdle = () => {
     window.clearTimeout(idleTimer);
     idleAct = '';
@@ -320,7 +322,7 @@
   const todNow = (mood = 'idle') => (animOn() ? PetMood.look(new Date(), mood, { tod: todOn(), temper: temperNow() }) : 'normal');
 
   // What the working chats are doing (props.js): the prop of an activity stays up at least DOING_HOLD_MS, so a run of quick tools does not flicker.
-  const DOING_HOLD_MS = 2500;
+  const DOING_HOLD_MS = 4000;
   let doingShown = '';
   let doingSince = 0;
   let doingTimer = null;
@@ -345,10 +347,20 @@
   const STICKY = ['celebrating', 'hover', 'hover-happy', 'act-poke'];
   // the hour can change while the pet sits calm for a long time: look again once a minute
   if (ROLE === 'pet') window.setInterval(() => { if (last && !last.overdue) render(last); }, 60_000);
+  // a working pet waits PetProps.WORK_GAP, stretched or shortened by the temperament alone (the time of day only touches an idle pet)
+  function workDelay() {
+    const t = temperNow();
+    const [lo, hi] = PetProps.WORK_GAP;
+    return Math.round((lo + Math.random() * (hi - lo)) * (PetMood.GAP_FACTOR[t === 'calm' ? 'normal' : t] || 1));
+  }
   function scheduleIdle() {
     window.clearTimeout(idleTimer);
+    const working = idleMode === 'working';
     idleTimer = window.setTimeout(() => {
-      const name = PetArt.pickIdleAction(PetArt.buildPet(last.look && last.look.pet).hasTail, Math.random, PetMood.PREFER[todNow()]);
+      const hasTail = PetArt.buildPet(last.look && last.look.pet).hasTail;
+      const name = working
+        ? PetArt.pickIdleAction(hasTail, Math.random, [], PetProps.workActions(workNow))
+        : PetArt.pickIdleAction(hasTail, Math.random, PetMood.PREFER[todNow()]);
       idleAct = `act-${name}`;
       root.classList.add(idleAct);
       idleTimer = window.setTimeout(() => {
@@ -356,20 +368,20 @@
         idleAct = '';
         scheduleIdle();
       }, PetArt.IDLE_ACTIONS[name].ms);
-    }, PetArt.nextIdleDelay(Math.random, PetMood.GAP_FACTOR[todNow()]));
+    }, working ? workDelay() : PetArt.nextIdleDelay(Math.random, PetMood.GAP_FACTOR[todNow()]));
   }
-  function syncIdle(calm) {
-    if (ROLE !== 'pet' || calm === idleWanted) return;
-    idleWanted = calm;
-    if (calm) scheduleIdle();
-    else stopIdle();
+  // a change between idle and working starts over, so an idle-only action (a hop, a nap) never carries over into a working pet
+  function syncIdle(mode) {
+    if (ROLE !== 'pet' || mode === idleMode) return;
+    idleMode = mode;
+    stopIdle();
+    if (mode) scheduleIdle();
   }
 
   function render(state) {
     last = state;
     applyLook(state.look);
     const mood = state.sessions.length === 0 ? 'sleep' : state.mood;
-    syncIdle(mood === 'idle' && !state.overdue && state.idleActions !== false);
     // the pet window is petSize px wide; the 150 px art is scaled to fill it (size M adds no transform at all)
     const scale = (state.petSize || 150) / 150;
     root.style.setProperty('--pet-scale', String(scale));
@@ -378,6 +390,8 @@
     const doing = settleDoing(working && PetProps.DOING.includes(state.doing) ? state.doing : '');
     const busy = working && state.busy >= PetProps.BUSY_CHATS;
     const marathon = working && state.workingSince > 0 && Date.now() - state.workingSince >= PetProps.MARATHON_MS;
+    workNow = { doing: state.doing || '', busy, marathon };
+    syncIdle(mood === 'idle' && !state.overdue && state.idleActions !== false ? 'idle' : working ? 'working' : '');
     const classes = [
       'pet-host', `role-${ROLE}`, `pet-${petId}`, `side-${state.layout.side}`, state.layout.vertical, `mood-${mood}`,
       look !== 'normal' && `tod-${look}`,

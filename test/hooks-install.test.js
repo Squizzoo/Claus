@@ -119,3 +119,16 @@ test('complete means every event has an entry of ours, however many there are', 
   assert.equal(H.status({ file, port: PORT }).complete, true);
   fs.rmSync(dir, { recursive: true });
 });
+
+test('the hooks that tell the pet what a chat is doing are installed for every tool', () => {
+  // state.js takes the activity from UserPromptSubmit and PostToolUse; PreToolUse is only installed for AskUserQuestion,
+  // so a PostToolUse matcher would silently hide the laptop, book and terminal again
+  assert.ok(Object.prototype.hasOwnProperty.call(H.EVENTS, 'UserPromptSubmit'));
+  assert.ok(Object.prototype.hasOwnProperty.call(H.EVENTS, 'PostToolUse'));
+  assert.equal(H.EVENTS.PostToolUse, undefined, 'PostToolUse must have no matcher');
+  const { SessionStore } = require('../src/state');
+  const st = new SessionStore();
+  const id = 'aaaaaaaa-1111-2222-3333-444444444444';
+  st.applyHook({ session_id: id, hook_event_name: 'PostToolUse', tool_name: 'Edit', cwd: 'C:\\x' });
+  assert.equal(st.snapshot().doing, 'type');
+});
