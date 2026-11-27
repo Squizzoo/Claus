@@ -48,3 +48,26 @@ test('the list is capped', () => {
   const many = Array.from({ length: 80 }, (_, i) => rel(`v0.${i}.0`));
   assert.equal(R.parseReleases(many, '0.1.0').length, R.MAX_LIST);
 });
+
+test('the repository comes from the build settings, or from the homepage in the installed app', () => {
+  const build = { publish: [{ provider: 'github', owner: 'Squizzoo', repo: 'Claus' }] };
+  assert.deepEqual(R.repoFromPackage({ build }), { owner: 'Squizzoo', repo: 'Claus' });
+  assert.deepEqual(R.repoFromPackage({ homepage: 'https://github.com/Squizzoo/Claus' }), { owner: 'Squizzoo', repo: 'Claus' });
+  assert.deepEqual(R.repoFromPackage({ homepage: 'https://github.com/Squizzoo/Claus/' }), { owner: 'Squizzoo', repo: 'Claus' });
+  assert.deepEqual(R.repoFromPackage({ build: { publish: [{ provider: 's3' }] }, homepage: 'https://github.com/a/b' }), { owner: 'a', repo: 'b' });
+  for (const bad of [null, {}, { homepage: 'https://example.com/a/b' }, { homepage: 'https://github.com/a/b/issues' }, { homepage: 'https://github.com/../x' }, { build: { publish: [{ provider: 'github', owner: 'a b', repo: 'c' }] } }]) {
+    assert.equal(R.repoFromPackage(bad), null, JSON.stringify(bad));
+  }
+});
+
+test('package.json still gives the repository without its build section (what the installed app sees)', () => {
+  const pkg = require('../package.json');
+  assert.deepEqual(R.repoFromPackage({ ...pkg, build: undefined }), R.repoFromPackage(pkg));
+  assert.ok(R.repoFromPackage({ ...pkg, build: undefined }));
+});
+
+test('an owner or repository of dots only never builds a feed address', () => {
+  assert.equal(R.feedUrl('..', 'Claus', '0.1.0'), null);
+  assert.equal(R.feedUrl('Squizzoo', '.', '0.1.0'), null);
+  assert.ok(R.feedUrl('Squizzoo', 'Claus', '0.1.0'));
+});
