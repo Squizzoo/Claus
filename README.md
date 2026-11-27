@@ -385,3 +385,7 @@ POST to the hook receiver by hand disappear again after about a minute (they are
 - Toasts have no "Open chat" button (Electron only supports those on macOS): the whole toast is the button. A toast you
   click in the notification centre after it timed out may do nothing, depending on Windows.
 - The pet has no taskbar button, so it cannot flash the taskbar; escalation is the repeat reminder.
+
+## Licence
+
+[MIT](LICENSE) (c) 2026 Squizzoo. Free to use, change and share, as long as the licence text stays with it.
