@@ -1,12 +1,13 @@
 'use strict';
 // The right-click menu of a chat row, as data: which items there are, what they say and whether they apply.
 // Pure (no Electron), so it can be unit tested; main.js turns the ids into actions.
+const PetArt = require('./renderer/pets');
 
 /**
  * info: what store.infoOf() says about the chat ({sessionId, cwd, hostSessionId, focusable, entrypoint});
  * prefs: the list preferences ({pinned, mutedChats}). Items are {id, label} or {type: 'separator'}.
  */
-function rowMenuTemplate(info, prefs) {
+function rowMenuTemplate(info, prefs, projectPet) {
   if (!info) return [];
   const p = prefs || {};
   if (info.chat) {
@@ -29,7 +30,20 @@ function rowMenuTemplate(info, prefs) {
   items.push({ type: 'separator' });
   items.push({ id: 'pin', label: (p.pinned || []).includes(info.sessionId) ? 'Unpin' : 'Pin to the top' });
   items.push({ id: 'mute', label: (p.mutedChats || []).includes(info.sessionId) ? 'Unmute this chat' : 'Mute this chat' });
+  // projectPet: the pet chosen for this chat's project ('' = none, undefined = the feature is not offered here)
+  if (info.cwd && typeof projectPet === 'string') items.push({ type: 'separator' }, projectPetMenu(projectPet));
   return items;
+}
+
+/** The "Pet for this project" submenu: items carry ids like 'ppet:dog' (or 'ppet:' for "same as everywhere"). */
+function projectPetMenu(current) {
+  return {
+    label: 'Pet for this project',
+    submenu: [
+      { id: 'ppet:', label: 'Same as everywhere', type: 'radio', checked: !current },
+      ...PetArt.ORDER.map((id) => ({ id: `ppet:${id}`, label: PetArt.PETS[id].label, type: 'radio', checked: current === id })),
+    ],
+  };
 }
 
 /**

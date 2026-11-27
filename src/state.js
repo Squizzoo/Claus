@@ -168,6 +168,9 @@ class SessionStore {
         inRegistry: false,
         registryStatus: null,
         registryStatusAt: 0,
+        childHosts: new Set(), // Desktop ids of the chats this chat started (read from its transcript, see children.js)
+        lastTurnMs: 0, // how long the last finished turn took
+        doneAt: 0, // when the chat last finished
       };
       this.sessions.set(id, s);
     }
@@ -189,6 +192,10 @@ class SessionStore {
     if (state === 'working' && s.pendingWaitMs > 0 && !this._isMuted(s)) this.times.waits.push(s.pendingWaitMs);
     if (!WAITING_ON_YOU.has(state)) s.pendingWaitMs = 0;
     // A turn ends when the chat finishes or goes idle: the time it spent working is the turn minus what it waited on you.
+    if (state === 'done') {
+      s.lastTurnMs = s.turnStart ? Math.max(0, now - s.turnStart) : 0;
+      s.doneAt = now;
+    }
     if (s.turnStart && (state === 'idle' || state === 'done')) {
       this.times.work.push(Math.max(0, now - s.turnStart - s.turnWaitMs));
     }
@@ -227,6 +234,35 @@ class SessionStore {
   }
 
   /** Token totals read from a chat's transcript ({input, output, cacheWrite, cacheRead}, or null). True when they changed. */
+  /** Remembers which chats a chat started (Desktop ids). Returns true when that changed. */
+  setChildren(id, hostIds) {
+    const s = this.sessions.get(id);
+    if (!s) return false;
+    const next = hostIds instanceof Set ? hostIds : new Set(hostIds || []);
+    if (next.size === s.childHosts.size && [...next].every((h) => s.childHosts.has(h))) return false;
+    s.childHosts = new Set(next);
+    return true;
+  }
+
+  /** The chat that started this one (its session id), or null: only a parent we know and that is still open counts. */
+  _parentOf(s) {
+    if (!s.hostSessionId) return null;
+    for (const p of this.sessions.values()) if (p !== s && p.childHosts.has(s.hostSessionId)) return p.id;
+    return null;
+  }
+
+  /**
+   * What the alert filter needs to know about a chat that just finished (see notify.js nestedAlertDecision):
+   * is it a started chat, did one of its own children finish lately, and how long was its last turn.
+   */
+  nestedContext(id) {
+    const s = this.sessions.get(id);
+    if (!s) return null;
+    let lastChildDoneAt = 0;
+    for (const c of this.sessions.values()) if (c !== s && c.hostSessionId && s.childHosts.has(c.hostSessionId)) lastChildDoneAt = Math.max(lastChildDoneAt, c.doneAt);
+    return { isChild: this._parentOf(s) !== null, hasChildren: s.childHosts.size > 0, lastChildDoneAt, turnMs: s.lastTurnMs, doneAt: s.doneAt };
+  }
+
   setUsage(id, usage) {
     const s = this.sessions.get(id);
     if (!s) return false;
@@ -526,6 +562,7 @@ class SessionStore {
         name: s.name || '(untitled)',
         folder: basename(s.cwd),
         project: projectKey(s.cwd),
+        parent: this._parentOf(s),
         state: s.state,
         since: s.since,
         turnStart: s.turnStart,

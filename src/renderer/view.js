@@ -8,7 +8,7 @@
   // Keep in step with PRIORITY in src/state.js (test/view.test.js checks this).
   const PRIORITY = { idle: 0, working: 1, done: 2, question: 3, approval: 4 };
   const PINNED_KEY = '*pinned'; // cannot be a path, so it never collides with a project key
-  const SIZES = { rowComfortable: 54, rowCompact: 34, group: 30, header: 40, search: 44, options: 64, footer: 40, pad: 8 };
+  const SIZES = { rowComfortable: 54, rowNested: 46, rowCompact: 34, group: 30, header: 40, search: 44, options: 64, footer: 40, pad: 8 };
   // options is two rows of pills at the 300 px panel width (wraps), not one.
 
   /** A length of time for a row: `42s`, `4m 12s`, `1h 05m`. */
@@ -56,6 +56,38 @@
     return state;
   }
 
+  /**
+   * Puts every chat that another chat started right under that chat, one step in (depth 1; a started chat of a started chat, depth 2).
+   * Only when both are in the same list: a started chat whose parent is hidden, in another group or filtered out stays where it is.
+   * Rows are marked in place: depth, and childCount on the parent.
+   */
+  function nest(members) {
+    const ids = new Set(members.map((r) => r.id));
+    const kids = new Map();
+    for (const r of members) {
+      r.depth = 0;
+      r.childCount = 0;
+      if (r.parent && r.parent !== r.id && ids.has(r.parent)) {
+        if (!kids.has(r.parent)) kids.set(r.parent, []);
+        kids.get(r.parent).push(r);
+      }
+    }
+    if (!kids.size) return members;
+    const out = [];
+    const placed = new Set();
+    const place = (r, depth) => {
+      if (placed.has(r.id)) return; // a loop of parents must not repeat or hang
+      placed.add(r.id);
+      r.depth = Math.min(depth, 2);
+      r.childCount = (kids.get(r.id) || []).length;
+      out.push(r);
+      for (const k of kids.get(r.id) || []) place(k, depth + 1);
+    };
+    for (const r of members) if (!(r.parent && r.parent !== r.id && ids.has(r.parent))) place(r, 0);
+    for (const r of members) place(r, 0); // anything left belongs to a loop: show it flat
+    return out;
+  }
+
   function group(key, label, rows, extra) {
     return {
       type: 'group',
@@ -98,7 +130,7 @@
     };
 
     if (prefs.groupBy === 'project') {
-      const pins = rows.filter((r) => r.pinned);
+      const pins = nest(rows.filter((r) => r.pinned));
       if (pins.length) {
         pushGroup(group(PINNED_KEY, 'Pinned', pins, { kind: 'pinned', collapsed: !searching && collapsed.has(PINNED_KEY) }), pins);
       }
@@ -117,9 +149,9 @@
         members,
       }));
       made.sort((a, b) => (prefs.sort === 'recent' ? b.g.newest - a.g.newest : b.g.urgent - a.g.urgent || b.g.newest - a.g.newest));
-      for (const { g, members } of made) pushGroup(g, members);
+      for (const { g, members } of made) pushGroup(g, nest(members));
     } else {
-      const ordered = [...rows.filter((r) => r.pinned), ...rows.filter((r) => !r.pinned)];
+      const ordered = nest([...rows.filter((r) => r.pinned), ...rows.filter((r) => !r.pinned)]);
       items.push(...ordered);
     }
 
@@ -138,10 +170,11 @@
   function wantedHeight(view, { density, footer, options }, max) {
     const rowH = density === 'compact' ? SIZES.rowCompact : SIZES.rowComfortable;
     const shownRows = view.items.filter((i) => i.type === 'row').length; // collapsed groups hide theirs
-    const body = view.items.length === 0 ? SIZES.rowComfortable : shownRows * rowH + view.groups * SIZES.group;
+    const nestedRows = density === 'compact' ? 0 : view.items.filter((i) => i.type === 'row' && i.depth > 0).length; // a started chat is a little shorter
+    const body = view.items.length === 0 ? SIZES.rowComfortable : shownRows * rowH - nestedRows * (rowH - SIZES.rowNested) + view.groups * SIZES.group;
     const h = SIZES.header + SIZES.search + (options ? SIZES.options : 0) + body + (footer ? SIZES.footer : 0) + SIZES.pad;
     return Math.min(h, max);
   }
 
-  return { buildView, firstJumpable, wantedHeight, formatDuration, formatAgo, formatTokens, PRIORITY, PINNED_KEY, SIZES };
+  return { buildView, nest, firstJumpable, wantedHeight, formatDuration, formatAgo, formatTokens, PRIORITY, PINNED_KEY, SIZES };
 });

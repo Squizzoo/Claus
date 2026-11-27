@@ -49,3 +49,14 @@ test('a Chat tab conversation only offers bringing Claude forward, pin and mute'
   assert.deepEqual(ids(rowMenuTemplate(chat, {})), ['open', 'pin', 'mute']);
   assert.equal(rowMenuTemplate(chat, { pinned: ['chat_x'], mutedChats: ['chat_x'] }).slice(-2).map((i) => i.label).join('|'), 'Unpin|Unmute this chat');
 });
+
+test('the project pet submenu lists every pet, marks the current one and is only offered when asked for', () => {
+  const PetArt = require('../src/renderer/pets');
+  assert.equal(rowMenuTemplate(base, {}).some((i) => i.submenu), false); // not asked for: no item (keeps the old lists)
+  assert.equal(rowMenuTemplate({ ...base, cwd: '' }, {}, '').some((i) => i.submenu), false); // no folder, no project
+  const sub = rowMenuTemplate(base, {}, 'dog').find((i) => i.submenu).submenu;
+  assert.deepEqual(sub.map((i) => i.id), ['ppet:', ...PetArt.ORDER.map((p) => `ppet:${p}`)]);
+  assert.deepEqual(sub.filter((i) => i.checked).map((i) => i.id), ['ppet:dog']);
+  assert.deepEqual(rowMenuTemplate(base, {}, '').find((i) => i.submenu).submenu.filter((i) => i.checked).map((i) => i.id), ['ppet:']);
+  assert.ok(sub.some((i) => i.id === 'ppet:critter' && i.label === 'Critter'));
+});

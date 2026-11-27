@@ -7,6 +7,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+const { hookCommand } = require('./wsl');
+
 const DEFAULT_PORT = 47821;
 
 // event -> optional matcher
@@ -24,8 +26,9 @@ const EVENTS = {
 const defaultFile = () => process.env.CLAUDE_SETTINGS_FILE || path.join(os.homedir(), '.claude', 'settings.json');
 const hookUrl = (port) => `http://127.0.0.1:${port}/hook`;
 
-const entry = (port) => ({ type: 'http', url: hookUrl(port), timeout: 3 });
-const isPet = (h, port) => Boolean(h) && h.type === 'http' && typeof h.url === 'string' && h.url === hookUrl(port);
+// Windows installs an `http` hook. Inside WSL the same event goes through a `command` hook that calls the Windows curl (see wsl.js).
+const entry = (port, wsl = false) => (wsl ? { type: 'command', command: hookCommand(port), timeout: 5 } : { type: 'http', url: hookUrl(port), timeout: 3 });
+const isPet = (h, port) => Boolean(h) && ((h.type === 'http' && typeof h.url === 'string' && h.url === hookUrl(port)) || (h.type === 'command' && typeof h.command === 'string' && h.command === hookCommand(port)));
 
 function load(file) {
   const text = fs.readFileSync(file, 'utf8');
@@ -45,11 +48,11 @@ function withoutPet(json, port) {
   return out;
 }
 
-function withPet(json, port) {
+function withPet(json, port, wsl = false) {
   const out = withoutPet(json, port); // idempotent: re-install never duplicates
   out.hooks = out.hooks || {};
   for (const [ev, matcher] of Object.entries(EVENTS)) {
-    const group = { ...(matcher ? { matcher } : {}), hooks: [entry(port)] };
+    const group = { ...(matcher ? { matcher } : {}), hooks: [entry(port, wsl)] };
     out.hooks[ev] = [...(out.hooks[ev] || []), group];
   }
   return out;
@@ -96,10 +99,10 @@ function loadOrEmpty(file) {
  * Describes `install` or `uninstall` without writing anything. Throws when the file cannot be read or when the change
  * would touch anything outside "hooks".
  */
-function plan({ action, file = defaultFile(), port = DEFAULT_PORT }) {
+function plan({ action, file = defaultFile(), port = DEFAULT_PORT, wsl = false }) {
   if (action !== 'install' && action !== 'uninstall') throw new Error('action must be install or uninstall');
   const { text, json, missing } = loadOrEmpty(file);
-  const next = action === 'install' ? withPet(json, port) : withoutPet(json, port);
+  const next = action === 'install' ? withPet(json, port, wsl) : withoutPet(json, port);
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   const body = JSON.stringify(next, null, indentOf(text)).replace(/\n/g, eol) + (missing || /\r?\n$/.test(text) ? eol : '');
   // Sanity: everything outside "hooks" must be the same data.

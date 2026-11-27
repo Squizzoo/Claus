@@ -187,7 +187,7 @@
 
   function rowEl(r, showFolder) {
     const li = document.createElement('li');
-    li.className = `row s-${r.state}${r.jumpable ? '' : ' nojump'}${r.overdue ? ' late' : ''}${r.muted ? ' muted' : ''}${r.pinned ? ' pinned' : ''}`;
+    li.className = `row s-${r.state}${r.jumpable ? '' : ' nojump'}${r.overdue ? ' late' : ''}${r.muted ? ' muted' : ''}${r.pinned ? ' pinned' : ''}${r.depth ? ` nested depth-${r.depth}` : ''}${r.childCount ? ' parent' : ''}`;
     li.dataset.id = r.id;
     li.dataset.jump = r.jumpable ? '1' : '';
     li.tabIndex = 0;
@@ -206,6 +206,14 @@
       name.append(flag);
     }
     name.append(document.createTextNode(r.name));
+    if (r.childCount) {
+      // a chat that started other chats: how many are listed under it
+      const kids = document.createElement('span');
+      kids.className = 'kids';
+      kids.textContent = String(r.childCount);
+      kids.title = `${r.childCount} chat${r.childCount === 1 ? '' : 's'} started from this one, listed below it`;
+      name.append(kids);
+    }
     const sub = document.createElement('div');
     sub.className = 'sub';
     const t = rowTexts(r, showFolder);
@@ -301,10 +309,15 @@
     window.clearTimeout(idleTimer);
     idleAct = '';
   };
+  // Mood memory: the time of day of a calm pet ('sleepy' | 'perky' | 'normal'). Screenshot runs (idleActions false) always get 'normal'.
+  const todOn = () => Boolean(last) && last.idleActions !== false && ROLE === 'pet' && !(last.look && last.look.mood === false);
+  const todNow = (mood = 'idle') => PetMood.effective(new Date(), mood, todOn());
+  // the hour can change while the pet sits calm for a long time: look again once a minute
+  if (ROLE === 'pet') window.setInterval(() => { if (last && !last.overdue) render(last); }, 60_000);
   function scheduleIdle() {
     window.clearTimeout(idleTimer);
     idleTimer = window.setTimeout(() => {
-      const name = PetArt.pickIdleAction(PetArt.buildPet(last.look && last.look.pet).hasTail);
+      const name = PetArt.pickIdleAction(PetArt.buildPet(last.look && last.look.pet).hasTail, Math.random, PetMood.PREFER[todNow()]);
       idleAct = `act-${name}`;
       root.classList.add(idleAct);
       idleTimer = window.setTimeout(() => {
@@ -312,7 +325,7 @@
         idleAct = '';
         scheduleIdle();
       }, PetArt.IDLE_ACTIONS[name].ms);
-    }, PetArt.nextIdleDelay());
+    }, PetArt.nextIdleDelay(Math.random, PetMood.GAP_FACTOR[todNow()]));
   }
   function syncIdle(calm) {
     if (ROLE !== 'pet' || calm === idleWanted) return;
@@ -329,7 +342,8 @@
     // the pet window is petSize px wide; the 150 px art is scaled to fill it (size M adds no transform at all)
     const scale = (state.petSize || 150) / 150;
     root.style.setProperty('--pet-scale', String(scale));
-    root.className = `pet-host role-${ROLE} pet-${petId} side-${state.layout.side} ${state.layout.vertical} mood-${mood}${state.overdue ? ' angry' : ''}${idleAct ? ' ' + idleAct : ''}${root.classList.contains('celebrating') ? ' celebrating' : ''}${scale !== 1 ? ' scaled' : ''}`;
+    const tod = state.overdue ? '' : PetMood.className(new Date(), mood, todOn());
+    root.className = `pet-host role-${ROLE} pet-${petId} side-${state.layout.side} ${state.layout.vertical} mood-${mood}${tod ? ' ' + tod : ''}${state.overdue ? ' angry' : ''}${idleAct ? ' ' + idleAct : ''}${root.classList.contains('celebrating') ? ' celebrating' : ''}${scale !== 1 ? ' scaled' : ''}`;
     const multi = renderChips(state);
     const text = state.overdue && !multi ? (mood === 'question' ? '?!' : '!!') : BUBBLE[mood] ?? '';
     bubbleText.textContent = text;
@@ -364,7 +378,7 @@
     const flat = state.prefs.groupBy === 'none';
     const sig = JSON.stringify([flat, view.items.map((i) => (i.type === 'group'
       ? [i.key, i.label, i.count, i.state, i.late, i.muted, i.collapsed]
-      : [i.id, i.name, i.state, i.jumpable, i.terminal, i.overdue, i.muted, i.pinned, i.mutedChat, i.folder, i.tokens, i.since && (i.overdue ? Math.floor((Date.now() - i.since) / 60000) : ago(i.since))]))]);
+      : [i.id, i.name, i.state, i.jumpable, i.terminal, i.overdue, i.muted, i.pinned, i.mutedChat, i.folder, i.tokens, i.depth, i.childCount, i.since && (i.overdue ? Math.floor((Date.now() - i.since) / 60000) : ago(i.since))]))]);
     if (sig !== listSig) {
       listSig = sig;
       const keep = focusedKey();
@@ -602,17 +616,18 @@
     if (e.key === 'Enter' || e.key === ' ') window.pet.togglePanel(wantedHeight(last));
   });
 
-  // Click-through: while the window ignores the mouse it still gets the moves (forwarded); Ctrl + hover asks main to make it clickable again.
+  // Click-through: main reads the real Ctrl state and makes the pet clickable (see updateClickThrough). Here the page only tells it about
+  // quick Ctrl moves (a fast path) and about every press and release on the pet, so a click or double-click keeps the grab alive.
   if (ROLE === 'pet') {
     let lastGrab = 0;
-    let armed = false; // Ctrl was held over the pet: it stays grabbable until the mouse leaves, so a slow click still lands
-    window.addEventListener('mousemove', (e) => {
-      if (e.ctrlKey) armed = true;
-      if (!armed || Date.now() - lastGrab < 250) return;
+    const grab = () => {
+      if (Date.now() - lastGrab < 250) return;
       lastGrab = Date.now();
       window.pet.petGrab();
-    });
-    document.addEventListener('mouseleave', () => { armed = false; });
+    };
+    window.addEventListener('mousemove', (e) => { if (e.ctrlKey) grab(); });
+    petEl.addEventListener('pointerdown', grab);
+    petEl.addEventListener('pointerup', grab);
   }
 
   window.pet.onState(render);

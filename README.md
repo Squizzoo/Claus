@@ -232,6 +232,24 @@ All of this is in the settings window (*Appearance* and *Window* tabs); *Reset p
 - **Click-through:** while no chat needs you (nothing finished, asking or waiting for approval, muted chats not counted)
   clicks go through the pet to the window below. Hold **Ctrl** and hover over the pet to grab it; the moment a chat needs you
   it is clickable again. A muted finished chat does not count as needing you: use the tray icon to open the list then.
+  Ctrl is read from the real keyboard state (a Windows API call in the PowerShell helper), and a grab lasts as long as the cursor
+  stays on the pet, so a slow click or a double-click always lands.
+
+## Time of day, pets per project, nested chats and WSL
+
+- **Time of day** (Settings > Behaviour): a calm pet is sleepy late at night (23:00 to 06:00: slower, half-closed eyes, yawns and
+  stretches) and perky in the morning (06:00 to 10:00). A chat that needs you always looks the way its state says. Switch it off there.
+- **Pet per project:** right-click a chat in the list and choose *Pet for this project*. While a chat of that project needs you
+  (finished, asking or waiting for approval) the pet shows that character; otherwise your usual one. Size and accessories stay the same.
+  Settings > Behaviour lists the projects that have their own pet and lets you reset them.
+- **Nested chats:** a chat that started other chats (a workflow, for example) lists them right under itself, indented, with a count.
+  Claude Code keeps no parent id, so Claus reads the answers of the parent's `start_session` calls in its own transcript and keeps only
+  the child ids. Settings > Notifications decides what happens when such a chat finishes: only the finished chat alerts (default;
+  the parent's short "done" reply right after is silent), only the parent, or both. Questions and approvals always alert.
+- **Claude Code in WSL** (Settings > System, off by default): the hooks inside WSL run the Windows `curl.exe` through WSL interop, so
+  they reach Claus on 127.0.0.1 in NAT and mirrored mode alike and Claus never listens on another address. *Install WSL hooks* adds them
+  to the settings file of every distro (after showing you the files; a backup is saved). Only distros that are running are read.
+  WSL chats cannot be brought forward from the list (their process lives in another machine).
 
 ## Start and stop with Claude
 
@@ -289,6 +307,20 @@ How the watcher behaves (`scripts/watch-claude.ps1`):
   and then `install` again from the new location.
 - To start the pet by hand without the watcher, use `npm start`.
 
+## Updates and older versions
+
+Settings > System > Updates has *Check for updates automatically* (on by default; off means Claus only checks when you press the
+button), *Check for updates*, and *Choose a version*: press *Show versions* to list the releases on GitHub and install any of
+them, an older one such as 0.1.0 included. Nothing is downloaded until you click *Download* and nothing is installed until you click
+*Install*. After going back, the next check will offer the newest version again; switch the automatic check off if you do not want that.
+This works in the installed version; the portable exe and a source checkout never update themselves.
+
+## Releases
+
+Releases are built by a GitHub Actions workflow (`.github/workflows/release.yml`), signed with SignPath and published only after a
+manual approval. See [RELEASING.md](RELEASING.md) and the [code signing policy](https://squizzoo.github.io/Claus/code-signing-policy.html).
+Every release has build provenance: `gh attestation verify <file> --repo Squizzoo/Claus`.
+
 ## Privacy
 
 - Everything is local. The receiver only listens on `127.0.0.1`, rejects any
@@ -297,7 +329,9 @@ How the watcher behaves (`scripts/watch-claude.ps1`):
 - Only `session_id`, event name, tool *name*, notification type and `cwd` are kept.
   Tool inputs, prompts and messages are dropped before anything is stored or logged.
 - The only thing Claus sends out of this computer is the update check of the installed version (a request to GitHub for the
-  latest release). It can be avoided with the portable version or a source checkout, which never check.
+  latest release; GitHub sees your IP address, nothing else is sent). It can be switched off in Settings > System > Updates >
+  *Check for updates automatically*, and the portable version or a source checkout never check. The list under *Choose a version*
+  asks the GitHub API for the releases, only when you press *Show versions*. See the [code signing policy](https://squizzoo.github.io/Claus/code-signing-policy.html).
 - Opening a chat is checked afterwards (the jump self-check): the pet asks which chat Claude Desktop shows and compares it with the one
   it opened. Only the pass/fail count, the time of the last success and Claude Desktop's version number are saved for that.
 - Your preferences are saved to `pet-settings.json` in the app's user-data folder:

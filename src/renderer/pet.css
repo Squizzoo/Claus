@@ -38,6 +38,15 @@
 .act-yawn .mouth-happy { display: block; fill: var(--ink); transform-box: fill-box; transform-origin: center top; animation: yawn 2s ease-in-out 1; }
 @keyframes yawn { 0%, 100% { transform: scale(0.5, 0.3); } 25%, 75% { transform: scale(1.25, 2.4); } }
 
+/* mood memory (mood.js): a calm pet is sleepy late at night and perky in the morning. Only classes tod-*, never a mood-* class. */
+.tod-sleepy.mood-idle .bob { animation-duration: 6.5s; }
+.tod-sleepy.mood-idle .tail { animation-duration: 7s; }
+.tod-sleepy.mood-idle .eyes-open { transform-box: view-box; transform-origin: var(--eye-origin, 75px 90px); transform: scaleY(0.62); }
+.tod-sleepy.mood-idle .blink { animation-duration: 9s; }
+.tod-perky.mood-idle .bob { animation-duration: 2.6s; }
+.tod-perky.mood-idle .tail { animation-duration: 2.4s; }
+.tod-perky.mood-idle .blink { animation-duration: 3.5s; }
+
 /* sleeping: nobody is around */
 .mood-sleep .eyes-closed { display: block; }
 .mood-sleep .bob { animation: breathe 5s ease-in-out infinite; transform: translateY(2px); }
