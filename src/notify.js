@@ -24,6 +24,15 @@ const SNOOZE = [
   { min: 60, label: '1 hour' },
 ];
 
+// A chat that started other chats (a workflow) and one of those chats finishing: the parent usually answers with a short "done" line, so there are two alerts.
+const NESTED = [
+  { id: 'child', label: "The finished chat only (the parent's short reply is silent)" },
+  { id: 'parent', label: 'The parent only (started chats finish silently)' },
+  { id: 'both', label: 'Both' },
+];
+const RELAY_WINDOW_MS = 60_000; // a parent that finishes this soon after one of its chats...
+const RELAY_TURN_MS = 45_000; // ...with a turn this short is only passing the news on
+
 const MAX_SNOOZE_MS = 24 * 3600_000;
 const HIDE_GRACE_MS = 4000; // a pet that no longer needs to be seen stays this long, so it does not flicker
 const SLIDE_MS = 200;
@@ -35,13 +44,14 @@ const KINDS = [
   { id: 'done', label: 'A chat has finished' },
 ];
 
-const DEFAULTS = { toast: 'away', toastKinds: { question: true, approval: true, done: true }, remindMin: 0, autoHide: 'off', snoozeUntil: 0 };
+const DEFAULTS = { toast: 'away', toastKinds: { question: true, approval: true, done: true }, remindMin: 0, autoHide: 'off', nested: 'child', snoozeUntil: 0 };
 
 function choices() {
   return {
     toast: TOAST.map((t) => t.id),
     remindMin: REMIND.map((r) => r.min),
     autoHide: AUTO_HIDE.map((a) => a.id),
+    nested: NESTED.map((n) => n.id),
   };
 }
 
@@ -87,6 +97,21 @@ function shouldToast({ mode, snoozed, petVisible, cursorOnPetDisplay, kinds, sta
   if (kinds && state && kinds[state] === false) return false; // this kind of alert has toasts switched off
   if (mode === 'always') return true;
   return !petVisible || !cursorOnPetDisplay;
+}
+
+/**
+ * Should this alert go out (sound, toast, peek)? Only "done" alerts of chats that are part of a parent and children are ever held back.
+ * ctx comes from SessionStore.nestedContext(): { isChild, hasChildren, lastChildDoneAt, turnMs, doneAt }.
+ *   child:  the parent's short turn right after one of its chats finished is silent (the finished chat already told you)
+ *   parent: a chat that was started by another chat finishes silently (the parent will report)
+ * Questions and approvals are never held back: somebody has to answer them.
+ */
+function nestedAlertDecision({ mode, state, ctx }) {
+  if (state !== 'done' || !ctx || mode === 'both') return true;
+  if (mode === 'parent') return !ctx.isChild;
+  const gap = ctx.doneAt - ctx.lastChildDoneAt;
+  const relay = ctx.hasChildren && ctx.lastChildDoneAt > 0 && gap >= 0 && gap <= RELAY_WINDOW_MS && ctx.turnMs <= RELAY_TURN_MS;
+  return !relay;
 }
 
 /** Drops the alerts of the chat that is open in the foreground Claude window (the one you are looking at). */
@@ -146,5 +171,5 @@ function clock(ms) {
 module.exports = {
   DEFAULTS, TOAST, KINDS, REMIND, AUTO_HIDE, SNOOZE, MAX_SNOOZE_MS, HIDE_GRACE_MS, SLIDE_MS,
   choices, sanitize, merge, sanitizeSnooze, isSnoozed, snoozeEnd,
-  shouldToast, filterFocused, needsPet, autoHideDecision, edgeStart, slideAt, clock,
+  NESTED, RELAY_WINDOW_MS, RELAY_TURN_MS, nestedAlertDecision, shouldToast, filterFocused, needsPet, autoHideDecision, edgeStart, slideAt, clock,
 };

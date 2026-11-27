@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('pet', {
   setPrefs: (patch) => ipcRenderer.send('set-prefs', patch),
   // the settings window (double-click the pet, or the tray)
   openSettings: () => ipcRenderer.send('open-settings'),
+  clearProjectLook: (key) => ipcRenderer.send('clear-project-look', key),
   onSettingsState: (cb) => ipcRenderer.on('settings-state', (_e, s) => cb(s)),
   setLook: (patch) => ipcRenderer.send('set-look', patch),
   setBehaviour: (patch) => ipcRenderer.send('set-behaviour', patch),
@@ -33,5 +34,7 @@ contextBridge.exposeInMainWorld('pet', {
   petMenu: () => ipcRenderer.send('pet-menu'),
   setSystem: (patch) => ipcRenderer.send('set-system', patch),
   hooksAction: (action) => ipcRenderer.send('hooks-action', action),
+  chooseVersion: (version) => ipcRenderer.send('choose-version', version),
+  wslHooksAction: (action) => ipcRenderer.send('wsl-hooks-action', action),
   updateAction: (what) => ipcRenderer.send('update-action', what),
 });

@@ -141,3 +141,36 @@ test('formatTokens keeps the badge short', () => {
   const { formatTokens } = PetView;
   assert.deepEqual([0, 812, 1000, 4200, 9999, 48_300, 999_999, 1_200_000, 12_000_000].map(formatTokens), ['0', '812', '1k', '4.2k', '10k', '48k', '1M', '1.2M', '12M']);
 });
+
+test('chats another chat started are listed right under it, one step in', () => {
+  const V = require('../src/renderer/view');
+  const prefs = { groupBy: 'project', sort: 'priority', pinned: [], mutedChats: [], mutedProjects: [], collapsed: [], density: 'comfortable' };
+  const s = (id, over = {}) => ({ id, name: id, folder: 'shop', project: 'c:/shop', state: 'idle', since: 100, parent: null, ...over });
+  const view = V.buildView([s('kid-a', { parent: 'boss', state: 'done', since: 300 }), s('other', { since: 400 }), s('boss', { state: 'working', since: 200 }), s('kid-b', { parent: 'boss', since: 150 })], prefs, '');
+  const rows = view.items.filter((i) => i.type === 'row');
+  const at = (id) => rows.findIndex((r) => r.id === id);
+  assert.equal(at('kid-a'), at('boss') + 1);
+  assert.equal(at('kid-b'), at('boss') + 2); // both directly under their parent, in the list's own order
+  assert.deepEqual([rows[at('boss')].depth, rows[at('kid-a')].depth, rows[at('other')].depth], [0, 1, 0]);
+  assert.equal(rows[at('boss')].childCount, 2);
+  assert.equal(rows.length, 4); // nothing is lost or repeated
+});
+
+test('a started chat whose parent is not in the same list stays where it is, and a loop of parents never hangs', () => {
+  const V = require('../src/renderer/view');
+  const prefs = { groupBy: 'none', sort: 'priority', pinned: [], mutedChats: [], mutedProjects: [], collapsed: [], density: 'comfortable' };
+  const s = (id, over = {}) => ({ id, name: id, folder: 'x', project: 'p', state: 'idle', since: 1, parent: null, ...over });
+  const lone = V.buildView([s('kid', { parent: 'gone' })], prefs, '').items;
+  assert.equal(lone[0].depth, 0);
+  const loop = V.buildView([s('a', { parent: 'b' }), s('b', { parent: 'a' }), s('c', { parent: 'c' })], prefs, '').items;
+  assert.equal(loop.length, 3);
+});
+
+test('the panel height counts a started chat as a shorter row', () => {
+  const V = require('../src/renderer/view');
+  const prefs = { groupBy: 'none', sort: 'priority', pinned: [], mutedChats: [], mutedProjects: [], collapsed: [], density: 'comfortable' };
+  const s = (id, over = {}) => ({ id, name: id, folder: 'x', project: 'p', state: 'idle', since: 1, parent: null, ...over });
+  const flat = V.wantedHeight(V.buildView([s('a'), s('b')], prefs, ''), { density: 'comfortable', footer: false, options: false }, 2000);
+  const nested = V.wantedHeight(V.buildView([s('a'), s('b', { parent: 'a' })], prefs, ''), { density: 'comfortable', footer: false, options: false }, 2000);
+  assert.equal(flat - nested, V.SIZES.rowComfortable - V.SIZES.rowNested);
+});

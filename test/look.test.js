@@ -109,3 +109,65 @@ test('size and opacity are validated and the size maps to pixels', () => {
   assert.equal(L.sizePx('nope'), 150);
   assert.equal(L.sizePx(undefined), 150);
 });
+
+test('sanitizeProjectLooks keeps only known pets and skins and caps the number of entries', () => {
+  const L = require('../src/look');
+  const ok = L.sanitizeProjectLooks({ 'c:/a': { pet: 'dog', skin: 'default' }, 'c:/b': { pet: 'nope' }, 'c:/c': { pet: 'cat', skin: 'nope' }, 'c:/d': 5, '': { pet: 'cat' } });
+  assert.deepEqual(Object.keys(ok).sort(), ['c:/a', 'c:/c']);
+  assert.equal(ok['c:/c'].skin, 'default');
+  assert.deepEqual(L.sanitizeProjectLooks(null), {});
+  assert.deepEqual(L.sanitizeProjectLooks([1, 2]), {});
+  const many = {};
+  for (let i = 0; i < 200; i++) many[`p${i}`] = { pet: 'cat' };
+  assert.equal(Object.keys(L.sanitizeProjectLooks(many)).length, L.PROJECT_LOOK_MAX);
+  assert.equal(Object.prototype.polluted, undefined);
+  L.sanitizeProjectLooks(JSON.parse('{"__proto__":{"pet":"cat"}}'));
+  assert.equal(Object.prototype.pet, undefined);
+});
+
+test('setProjectLook sets, replaces and clears one project', () => {
+  const L = require('../src/look');
+  let m = L.setProjectLook({}, 'c:/a', 'dog');
+  assert.deepEqual(m, { 'c:/a': { pet: 'dog', skin: 'default' } });
+  m = L.setProjectLook(m, 'c:/a', 'owl', 'default');
+  assert.equal(m['c:/a'].pet, 'owl');
+  m = L.setProjectLook(m, 'c:/a', null);
+  assert.deepEqual(m, {});
+  assert.deepEqual(L.setProjectLook({}, '', 'dog'), {});
+});
+
+test('effectiveLook: only the newest chat that needs you can switch the pet', () => {
+  const L = require('../src/look');
+  const base = { ...L.DEFAULTS, pet: 'cat', size: 'l', accessory: 'bow' };
+  const maps = { 'c:/a': { pet: 'dog', skin: 'default' } };
+  const s = (id, project, state, since, extra = {}) => ({ id, project, state, since, muted: false, ...extra });
+  // nothing needs you: global look, even while a project with its own pet is working
+  assert.equal(L.effectiveLook([s('1', 'c:/a', 'working', 5)], base, maps), base);
+  // a done chat of project a: its pet, but size and accessory stay global
+  const dog = L.effectiveLook([s('1', 'c:/a', 'done', 5)], base, maps);
+  assert.equal(dog.pet, 'dog');
+  assert.equal(dog.size, 'l');
+  assert.equal(dog.accessory, 'bow');
+  // a newer chat of a project without its own pet wins: global look; an older one does not
+  assert.equal(L.effectiveLook([s('1', 'c:/a', 'done', 5), s('2', 'c:/b', 'question', 9)], base, maps), base);
+  assert.equal(L.effectiveLook([s('1', 'c:/a', 'done', 9), s('2', 'c:/b', 'question', 5)], base, maps).pet, 'dog');
+  // muted chats never switch it, and a tie is stable
+  assert.equal(L.effectiveLook([s('1', 'c:/a', 'done', 5, { muted: true })], base, maps), base);
+  const tie = [s('b', 'c:/a', 'done', 5), s('a', 'c:/b', 'done', 5)];
+  assert.equal(L.effectiveLook(tie, base, maps), base);
+  assert.equal(L.effectiveLook([...tie].reverse(), base, maps), base);
+  assert.equal(L.effectiveLook([], base, maps), base);
+  assert.equal(L.effectiveLook(null, base, null), base);
+});
+
+test('setProjectLook at the limit drops the oldest project instead of losing the new one', () => {
+  const L = require('../src/look');
+  let m = {};
+  for (let i = 0; i < L.PROJECT_LOOK_MAX; i++) m = L.setProjectLook(m, `p${i}`, 'cat');
+  m = L.setProjectLook(m, 'fresh', 'dog');
+  assert.equal(Object.keys(m).length, L.PROJECT_LOOK_MAX);
+  assert.equal(m.fresh.pet, 'dog');
+  assert.equal(m.p0, undefined);
+  assert.equal(L.setProjectLook(m, 'p5', 'owl').p5.pet, 'owl'); // changing an existing one never evicts
+  assert.ok(L.setProjectLook(m, 'p5', 'owl').fresh);
+});

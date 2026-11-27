@@ -89,10 +89,15 @@ Small changes with a big payoff now that the chat list is getting long.
 ## Phase 6: Stretch ideas
 
 - [ ] **Click-to-reply.** Allow or deny simple approvals from the pet. Touches
-      permissions, so opt-in only, or skip.
-- [ ] **Mood memory.** Sleepy late at night, perky in the morning.
-- [ ] **One pet per project** instead of a single pet for everything.
-- [ ] **WSL chats.** Show chats from the WSL side too, since hooks are shared.
+      permissions, so opt-in only, or skip. Not built yet: Claude Code's hooks docs do not say whether its own permission dialog
+      shows while a PermissionRequest hook is still pending (if it waits, holding the request would delay every approval), and that
+      has to be tested in an interactive chat first.
+- [x] **Mood memory.** Sleepy late at night (23:00-06:00), perky in the morning (06:00-10:00); only a calm pet changes; one switch in Settings.
+- [x] **One pet per project.** Right-click a chat > *Pet for this project*; the one pet window shows that character while a chat of
+      that project needs you.
+- [x] **WSL chats.** Opt-in (Settings > System): a `command` hook in WSL pipes events to the Windows curl, and the registry of running distros is read.
+- [x] **Nested chats.** A chat that started other chats lists them under itself; a setting decides which of the two "done" alerts goes out.
+- [x] **Critter**, a new pet; the click-through grab now reads the real Ctrl state.
 
 ## Suggested order
 

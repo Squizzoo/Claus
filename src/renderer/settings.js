@@ -50,6 +50,64 @@
     const m = Math.round(s / 60);
     return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
   }
+  // the projects that have their own pet, each with a button to give them the usual one back
+  let projectSig = '';
+  function renderProjectPets(list) {
+    const sig = JSON.stringify(list);
+    if (sig === projectSig) return;
+    projectSig = sig;
+    const box = $('project-pets');
+    box.textContent = '';
+    if (!list.length) {
+      const none = el('p', 'hint');
+      none.textContent = 'No project has its own pet yet.';
+      box.append(none);
+      return;
+    }
+    for (const p of list) {
+      const row = el('div', 'project-pet');
+      const name = el('span', 'project-pet-name');
+      name.textContent = p.folder || p.key;
+      name.title = p.key;
+      const pet = el('span', 'project-pet-pet');
+      pet.textContent = p.label;
+      const seg = el('div', 'seg'); // the .seg class gives the button its chip look
+      const reset = el('button');
+      reset.type = 'button';
+      reset.textContent = 'Use the usual pet';
+      reset.addEventListener('click', () => window.pet.clearProjectLook(p.key));
+      seg.append(reset);
+      row.append(name, pet, seg);
+      box.append(row);
+    }
+  }
+  // the list of versions to choose from (fetched on a click); the selection survives the refreshes of the settings state
+  let versionSig = '';
+  function renderVersions(sys) {
+    const vs = sys.versions || { status: 'idle', list: [], available: false };
+    $('versions-load').disabled = !sys.updatesAvailable || !vs.available || vs.status === 'loading';
+    $('versions-load').textContent = vs.status === 'ready' ? 'Refresh the list' : 'Show versions';
+    $('versions-state').textContent = !sys.updatesAvailable ? 'Choosing a version works in the installed version only.'
+      : vs.status === 'loading' ? 'Asking GitHub...'
+      : vs.status === 'error' ? `The list could not be loaded: ${vs.error}`
+      : vs.status === 'ready' && !vs.list.length ? 'No installable versions were found.' : '';
+    const show = vs.status === 'ready' && vs.list.length > 0;
+    $('versions-box').hidden = !show;
+    const sig = JSON.stringify(vs.list);
+    if (!show || sig === versionSig) return;
+    versionSig = sig;
+    const pick = $('version-pick');
+    pick.textContent = '';
+    for (const v of vs.list) {
+      const o = el('option');
+      o.value = v.version;
+      o.disabled = v.relation === 'same';
+      o.textContent = `${v.version}${v.date ? ` (${v.date})` : ''}${v.relation === 'same' ? ' - installed' : v.relation === 'older' ? ' - older' : ' - newer'}`;
+      pick.append(o);
+    }
+    const first = [...pick.options].find((o) => !o.disabled);
+    if (first) pick.value = first.value;
+  }
   function renderToday(d) {
     if (!d) return;
     $('st-finished').textContent = String(d.finished);
@@ -172,9 +230,15 @@
   $('login').addEventListener('change', (e) => window.pet.setSystem({ login: e.target.checked }));
   $('follow-claude').addEventListener('change', (e) => window.pet.setSystem({ followClaude: e.target.checked }));
   $('watch-chat').addEventListener('change', (e) => window.pet.setSystem({ watchChat: e.target.checked }));
+  $('wsl').addEventListener('change', (e) => window.pet.setSystem({ wsl: e.target.checked }));
+  $('wsl-hooks-install').addEventListener('click', () => window.pet.wslHooksAction('install'));
+  $('wsl-hooks-remove').addEventListener('click', () => window.pet.wslHooksAction('uninstall'));
   $('hooks-install').addEventListener('click', () => window.pet.hooksAction('install'));
   $('hooks-remove').addEventListener('click', () => window.pet.hooksAction('uninstall'));
   $('update-check').addEventListener('click', () => window.pet.updateAction('check'));
+  $('update-auto').addEventListener('change', (e) => window.pet.setSystem({ updateCheck: e.target.checked }));
+  $('versions-load').addEventListener('click', () => window.pet.updateAction('versions'));
+  $('version-go').addEventListener('click', () => { const v = $('version-pick').value; if (v) window.pet.chooseVersion(v); });
   $('update-go').addEventListener('click', () => window.pet.updateAction($('update-go').dataset.action));
   $('fullscreen').addEventListener('change', (e) => place({ fullscreen: e.target.checked }));
   $('click-through').addEventListener('change', (e) => place({ clickThrough: e.target.checked }));
@@ -186,12 +250,13 @@
     }
     window.pet.setPlace(patch);
   }
-  const notifyRows = { snooze: [], toast: [], remind: [], autohide: [] };
+  const notifyRows = { snooze: [], toast: [], remind: [], autohide: [], nested: [] };
   let kindBoxes = [];
 
   $('muted').addEventListener('change', (e) => window.pet.setBehaviour({ muted: e.target.checked }));
   $('streak').addEventListener('change', (e) => pick({ streak: e.target.checked }));
   $('show-tokens').addEventListener('change', (e) => pick({ showTokens: e.target.checked }));
+  $('mood-memory').addEventListener('change', (e) => pick({ mood: e.target.checked }));
 
   // ---------- sending changes ----------
   /** Shows the change at once and asks the main process to apply it (it answers with the real state). */
@@ -264,6 +329,8 @@
     setChecked(patienceButtons, (b) => b.dataset.value === String(st.impatientMin));
     $('streak').checked = look.streak;
     $('show-tokens').checked = look.showTokens;
+    $('mood-memory').checked = look.mood;
+    renderProjectPets(st.projectPets || []);
     renderToday(st.daily);
 
     const nt = st.notify;
@@ -274,6 +341,7 @@
         notifyRows.toast = segmented($('toast'), ch.toast.map((x) => [x.id, x.label]), (id) => window.pet.setNotify({ toast: id }));
         notifyRows.remind = segmented($('remind'), ch.remind.map((x) => [x.min, x.label]), (min) => window.pet.setNotify({ remindMin: min }));
         notifyRows.autohide = segmented($('autohide'), ch.autoHide.map((x) => [x.id, x.label]), (id) => window.pet.setNotify({ autoHide: id }));
+        notifyRows.nested = segmented($('nested'), ch.nested.map((x) => [x.id, x.label]), (id) => window.pet.setNotify({ nested: id }));
       }
       if (!kindBoxes.length) {
         kindBoxes = ch.kinds.map(({ id, label }) => {
@@ -298,6 +366,7 @@
       setChecked(notifyRows.toast, (b) => b.dataset.value === nt.toast);
       setChecked(notifyRows.remind, (b) => b.dataset.value === String(nt.remindMin));
       setChecked(notifyRows.autohide, (b) => b.dataset.value === nt.autoHide);
+      setChecked(notifyRows.nested, (b) => b.dataset.value === nt.nested);
       const note = $('snooze-note');
       note.hidden = !on;
       if (on) {
@@ -332,9 +401,13 @@
     $('login-hint').textContent = sys.loginAvailable ? 'Start Claus when you sign in to Windows.' : sys.portable ? 'The portable version has no fixed place to start from. Use the installer to start with Windows.' : 'Only the installed version can start with Windows (this one runs from a source folder).';
     $('follow-claude').checked = sys.followClaude;
     $('watch-chat').checked = sys.watchChat;
+    $('wsl').checked = sys.wsl.enabled;
+    $('wsl-state').textContent = !sys.wsl.enabled ? 'Off.' : sys.wsl.running ? `${sys.wsl.running} distro${sys.wsl.running === 1 ? ' is' : 's are'} running. ${sys.wsl.hooks}.` : 'No WSL distro is running right now.';
     const u = sys.update;
     $('update-state').textContent = u.text || (sys.updatesAvailable ? '' : 'Updates work in the installed version only.');
     $('update-check').disabled = !sys.updatesAvailable || u.status === 'checking' || u.status === 'downloading';
+    $('update-auto').checked = sys.updateCheck;
+    renderVersions(sys);
     const go = $('update-go');
     const action = u.status === 'available' ? 'download' : u.status === 'ready' ? 'install' : '';
     go.hidden = !action;

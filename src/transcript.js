@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { createUsage } = require('./usage');
+const { createChildren } = require('./children');
 
 const DIR = process.env.CLAUDE_PET_PROJECTS_DIR || path.join(os.homedir(), '.claude', 'projects');
 const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -40,7 +41,7 @@ function createTranscriptReader({ dir = DIR, now = Date.now } = {}) {
     try {
       let e = files.get(sessionId);
       if (!e) {
-        e = { file: null, offset: 0, usage: createUsage(), missAt: 0 };
+        e = { file: null, offset: 0, usage: createUsage(), children: createChildren(), missAt: 0 };
         files.set(sessionId, e);
       }
       if (!e.file) {
@@ -62,6 +63,7 @@ function createTranscriptReader({ dir = DIR, now = Date.now } = {}) {
       if (size < e.offset) { // rewritten smaller: start over
         e.offset = 0;
         e.usage = createUsage();
+        e.children = createChildren();
       }
       let changed = false;
       const fh = await fs.promises.open(e.file, 'r');
@@ -83,7 +85,9 @@ function createTranscriptReader({ dir = DIR, now = Date.now } = {}) {
             if (e.offset + buf.length >= size && buf.length < MAX_SLICE) break; // a half-written last line: wait for the rest
             cut = buf.length - 1; // an absurdly long line: drop it
           }
-          if (e.usage.ingest(buf.subarray(0, cut + 1).toString('utf8'))) changed = true;
+          const text = buf.subarray(0, cut + 1).toString('utf8');
+          if (e.usage.ingest(text)) changed = true;
+          if (e.children.ingest(text)) changed = true; // a chat that started another one: the answer holds the child's id
           e.offset += cut + 1;
         }
       } finally {
@@ -97,6 +101,8 @@ function createTranscriptReader({ dir = DIR, now = Date.now } = {}) {
 
   return {
     refresh,
+    /** The Desktop ids of the chats this chat started (a Set, empty when none). */
+    children: (sessionId) => (files.has(sessionId) ? files.get(sessionId).children.ids() : new Set()),
     totals: (sessionId) => (files.has(sessionId) ? files.get(sessionId).usage.totals() : null),
     /** Forgets chats that no longer exist. */
     keepOnly(ids) {

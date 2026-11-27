@@ -96,3 +96,19 @@ test('holding Ctrl over the pet switches click-through off for a moment', () => 
   assert.equal(P.clickThroughDecision({ ...base, grabbedAt: 9_500 }), false);
   assert.equal(P.clickThroughDecision({ ...base, grabbedAt: 10_000 - P.GRAB_HOLD_MS - 1 }), true);
 });
+
+test('a grab lasts while the cursor stays on the pet, so a slow double-click lands', () => {
+  const base = { enabled: true, attention: 0, panelOpen: false, dragging: false, settingsOpen: false, now: 60_000 };
+  const old = 60_000 - P.GRAB_HOLD_MS - 1;
+  assert.equal(P.clickThroughDecision({ ...base, grabbedAt: old, cursorInside: true }), false); // still on the pet: stays clickable
+  assert.equal(P.clickThroughDecision({ ...base, grabbedAt: old, cursorInside: false }), true); // left it: click-through again
+  assert.equal(P.clickThroughDecision({ ...base, grabbedAt: 0, cursorInside: true }), true); // just hovering, never grabbed
+});
+
+test('cursorOver is true only inside the window rectangle', () => {
+  const b = { x: 100, y: 50, width: 150, height: 150 };
+  assert.equal(P.cursorOver({ x: 100, y: 50 }, b), true);
+  assert.equal(P.cursorOver({ x: 249, y: 199 }, b), true);
+  assert.equal(P.cursorOver({ x: 250, y: 100 }, b), false);
+  assert.equal(P.cursorOver({ x: 99, y: 100 }, b), false);
+});

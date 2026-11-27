@@ -57,3 +57,71 @@ test('an unsupported updater never loads electron-updater and never changes stat
   assert.equal(u.install(), false);
   assert.deepEqual(seen, []);
 });
+
+// a stand-in for electron-updater that records what it is told
+function fakeAutoUpdater() {
+  const calls = [];
+  const handlers = {};
+  return {
+    calls,
+    on: (name, fn) => { handlers[name] = fn; },
+    emit: (name, arg) => handlers[name] && handlers[name](arg),
+    setFeedURL(feed) { calls.push(['feed', feed]); },
+    checkForUpdates() { calls.push(['check', this.allowDowngrade]); return Promise.resolve(); },
+    downloadUpdate() { calls.push(['download']); return Promise.resolve(); },
+    quitAndInstall() { calls.push(['install']); },
+  };
+}
+const repo = { owner: 'Squizzoo', repo: 'Claus' };
+
+test('choosing a version points the updater at that release and allows going down; the next normal check puts the usual feed back', async () => {
+  const au = fakeAutoUpdater();
+  const u = U.createUpdater({ supported: true, onChange: () => {}, repo, loadUpdater: () => au });
+  await u.useVersion('0.1.0');
+  assert.deepEqual(au.calls[0], ['feed', { provider: 'generic', url: 'https://github.com/Squizzoo/Claus/releases/download/v0.1.0' }]);
+  assert.deepEqual(au.calls[1], ['check', true]);
+  au.calls.length = 0;
+  await u.check();
+  assert.deepEqual(au.calls[0], ['feed', { provider: 'github', owner: 'Squizzoo', repo: 'Claus' }]);
+  assert.deepEqual(au.calls[1], ['check', false]); // going down is off again
+  au.calls.length = 0;
+  await u.check(); // not pinned any more: no feed change
+  assert.deepEqual(au.calls, [['check', false]]);
+});
+
+test('the timer leaves a chosen version alone while it waits to be installed, but a click on Check does not', async () => {
+  const au = fakeAutoUpdater();
+  const u = U.createUpdater({ supported: true, onChange: () => {}, repo, loadUpdater: () => au });
+  await u.useVersion('0.1.0');
+  au.emit('update-available', { version: '0.1.0' });
+  assert.equal(u.state().status, 'available');
+  au.calls.length = 0;
+  await u.check({ auto: true });
+  assert.deepEqual(au.calls, []); // the 6-hour timer does not swap the choice for the newest version
+  await u.check();
+  assert.equal(au.calls[0][0], 'feed'); // an explicit check does
+});
+
+test('useVersion refuses versions that are not plain numbers, and does nothing when updates are unsupported', async () => {
+  const au = fakeAutoUpdater();
+  const u = U.createUpdater({ supported: true, onChange: () => {}, repo, loadUpdater: () => au });
+  await u.useVersion('0.1.0/../../evil');
+  await u.useVersion('latest');
+  assert.deepEqual(au.calls, []);
+  const off = U.createUpdater({ supported: false, onChange: () => {}, repo, loadUpdater: () => { throw new Error('must not load'); } });
+  assert.equal((await off.useVersion('0.1.0')).status, 'unsupported');
+});
+
+test('choosing a version while another update is ready is not swallowed', async () => {
+  const au = fakeAutoUpdater();
+  const u = U.createUpdater({ supported: true, onChange: () => {}, repo, loadUpdater: () => au });
+  await u.check();
+  au.emit('update-available', { version: '0.3.0' });
+  au.emit('update-downloaded', { version: '0.3.0' });
+  assert.equal(u.state().status, 'ready');
+  await u.useVersion('0.1.0');
+  au.emit('update-available', { version: '0.1.0' });
+  assert.deepEqual([u.state().status, u.state().version], ['available', '0.1.0']);
+  // a download in progress is never reset
+  assert.equal(U.reduce({ ...U.EMPTY, status: 'downloading', percent: 5 }, { type: 'reset' }).status, 'downloading');
+});

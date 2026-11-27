@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Code signing policy - Claus</title>
+<meta name="description" content="How the Windows builds of Claus are built, approved and signed, who is on the team, and what the app sends over the network.">
+<link rel="icon" type="image/png" href="assets/icon.png">
+<style>
+:root {
+  --bg: #f6f4ef;
+  --card: #ffffff;
+  --text: #1d1b17;
+  --muted: #6a645a;
+  --line: #ddd7ca;
+  --accent: #d9732b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17161a;
+    --card: #232227;
+    --text: #f1eee8;
+    --muted: #a39d92;
+    --line: #34323a;
+    --accent: #f0903f;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 "Segoe UI", system-ui, sans-serif; }
+.wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 64px; }
+a { color: var(--accent); }
+h1 { font-size: 2rem; margin: 0 0 8px; }
+h2 { font-size: 1.25rem; margin: 36px 0 8px; }
+.lead { color: var(--muted); margin: 0 0 24px; }
+.notice { background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; padding: 14px 18px; margin: 20px 0; font-weight: 600; }
+table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: .85rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+tr:last-child td { border-bottom: 0; }
+ul { padding-left: 22px; }
+code { background: var(--card); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; font-size: .9em; }
+.back { display: inline-block; margin-bottom: 20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="./">&larr; Claus</a>
+  <h1>Code signing policy</h1>
+  <p class="lead">How the Windows builds of Claus are built, approved and signed, who is responsible for that, and what the app sends over the network.</p>
+
+  <div class="notice">Free code signing provided by SignPath.io, certificate by SignPath Foundation</div>
+
+  <h2>Team and roles</h2>
+  <p>Claus is a small open-source project. Every signed release goes through the three roles below. A role can be held by the same person; nothing is signed without an explicit approval.</p>
+  <table>
+    <thead><tr><th>Role</th><th>What it does</th><th>Who</th></tr></thead>
+    <tbody>
+      <tr><td>Authors and committers</td><td>Write the code and push it to the repository.</td><td><a href="https://github.com/Squizzoo">Squizzoo</a></td></tr>
+      <tr><td>Reviewers</td><td>Review changes before they reach <code>main</code>.</td><td><a href="https://github.com/Squizzoo">Squizzoo</a></td></tr>
+      <tr><td>Approvers</td><td>Approve the release in GitHub (the <code>release</code> environment) and the signing request in SignPath.</td><td><a href="https://github.com/Squizzoo">Squizzoo</a></td></tr>
+    </tbody>
+  </table>
+  <p>Everyone on the team must use two-factor authentication on GitHub and on SignPath.</p>
+
+  <h2>What is signed, and how</h2>
+  <ul>
+    <li>Only the installer (<code>Claus-Setup-x.y.z.exe</code>) and the portable program (<code>Claus-x.y.z-portable.exe</code>) are signed, and only builds made from the <a href="https://github.com/Squizzoo/Claus">public source code</a>.</li>
+    <li>Builds are made by a <a href="https://github.com/Squizzoo/Claus/blob/main/.github/workflows/release.yml">GitHub Actions workflow</a> on a GitHub-hosted runner, from a version tag. The workflow runs the tests, checks that the product name is <code>Claus</code> and that the tag matches the version in <code>package.json</code>, and then sends the build to SignPath for signing. Nobody signs on their own computer.</li>
+    <li>Every release has to be approved by hand in GitHub before it is published, and every signing request has to be approved in SignPath.</li>
+    <li>Each release carries a build provenance attestation and a <code>SHA256SUMS.txt</code> file, so a download can be checked against the workflow that built it: <code>gh attestation verify &lt;file&gt; --repo Squizzoo/Claus</code>.</li>
+    <li>Claus is not malware or a potentially unwanted program and does not try to hide what it does. It will not be signed if it is.</li>
+  </ul>
+
+  <h2>Privacy policy</h2>
+  <p>Claus works on your computer. It has no accounts, no telemetry and no analytics. What it reads and where it goes:</p>
+  <ul>
+    <li><strong>Claude Code hooks</strong> deliver events to Claus on <code>127.0.0.1</code>, your own computer. Claus keeps only the chat id, the event name, the tool name and the project folder. Prompts and tool input are dropped.</li>
+    <li><strong>Settings and counters</strong> (position, look, a count of chats finished today) are saved in a file on your computer. They are never sent anywhere.</li>
+    <li><strong>The update check</strong> is the only automatic network request. Claus asks <code>github.com</code> (the releases of this project) whether a newer version exists. GitHub sees your IP address, as any website does; Claus sends nothing about you, your chats or your computer. Nothing is downloaded or installed without a click. You can switch it off under <em>Settings &gt; System &gt; Updates &gt; Check for updates automatically</em>; after that Claus only asks when you press <em>Check for updates</em>.</li>
+    <li><strong>Choosing a version</strong> (Settings &gt; System &gt; Updates) asks <code>api.github.com</code> for the list of releases, only when you press <em>Show versions</em>.</li>
+  </ul>
+  <p>Claus does not transfer any other information to other networked systems unless you ask it to. GitHub's own privacy statement applies to requests that reach GitHub.</p>
+
+  <h2>Reporting a problem</h2>
+  <p>If you think a signed build of Claus is misbehaving, or a certificate has been misused, please open an <a href="https://github.com/Squizzoo/Claus/issues">issue</a>. Signed builds that turn out to be harmful will be reported to SignPath so the certificate can be revoked.</p>
+</div>
+</body>
+</html>

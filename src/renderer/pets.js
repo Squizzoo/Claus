@@ -277,6 +277,19 @@
       vars: { '--tail-w': '5' },
       anchors: { vein: [75, 34], top: [75, 54], bow: [112, 57] },
     },
+    critter: {
+      // A squat coral critter: wide rounded body, two ear nubs, stubby arms and six little feet. Its own design, not a copy of any mascot.
+      label: 'Critter',
+      colors: { body: '#e0805a', ink: '#2b1a14', inner: '#f2b08f', blush: '#f5a7b5' },
+      back: '<rect class="dark" x="38" y="47" width="14" height="16" rx="4"/><rect class="dark" x="98" y="47" width="14" height="16" rx="4"/>'
+        + '<rect class="dark" x="35" y="112" width="10" height="20" rx="3"/><rect class="dark" x="49" y="112" width="10" height="20" rx="3"/><rect class="dark" x="63" y="112" width="10" height="20" rx="3"/>'
+        + '<rect class="dark" x="77" y="112" width="10" height="20" rx="3"/><rect class="dark" x="91" y="112" width="10" height="20" rx="3"/><rect class="dark" x="105" y="112" width="10" height="20" rx="3"/>',
+      body: '<rect id="body" class="fur" x="26" y="56" width="98" height="64" rx="16"/>',
+      front: '<rect class="fur" x="12" y="82" width="18" height="16" rx="6"/><rect class="fur" x="120" y="82" width="18" height="16" rx="6"/>'
+        + '<rect class="inner" x="36" y="62" width="30" height="6" rx="3"/>',
+      face: { cx: 75, eyeY: 86, eyeDx: 17, eyeR: 6, mouthY: 101, cheeks: { dx: 31, y: 96, rx: 6.5, ry: 4 } },
+      anchors: { vein: [75, 38], top: [75, 56], bow: [110, 60] },
+    },
     alien: {
       label: 'Alien',
       colors: { body: '#a6e46c', ink: '#16251a', inner: '#e4fbc2', blush: '#7fd05a', nose: '#6aa83e' },
@@ -334,7 +347,7 @@
       anchors: { vein: [75, 36], top: [75, 46] },
     },
   };
-  const ORDER = ['cat', 'dog', 'bunny', 'bird', 'penguin', 'owl', 'dragon', 'sprout', 'blob', 'ghost', 'robot', 'alien', 'car', 'sun', 'moon', 'cloud'];
+  const ORDER = ['cat', 'dog', 'bunny', 'bird', 'penguin', 'owl', 'dragon', 'sprout', 'blob', 'ghost', 'robot', 'critter', 'alien', 'car', 'sun', 'moon', 'cloud'];
   const DEFAULT_PET = 'cat';
 
   /** The pet's colours under a skin: the body changes, the shades are worked out again from it. */
@@ -396,12 +409,14 @@
   const IDLE_GAP = [8000, 20000]; // wait between two actions, in ms
 
   /** The name of the next idle action, never one the pet cannot do. */
-  function pickIdleAction(hasTail, rand = Math.random) {
+  function pickIdleAction(hasTail, rand = Math.random, prefer = []) {
     const names = Object.keys(IDLE_ACTIONS).filter((n) => hasTail || !IDLE_ACTIONS[n].needsTail);
-    return names[Math.min(names.length - 1, Math.floor(rand() * names.length))];
+    const pool = names.flatMap((n) => (prefer.includes(n) ? [n, n, n] : [n])); // a preferred action is three times as likely
+    return pool[Math.min(pool.length - 1, Math.floor(rand() * pool.length))];
   }
-  function nextIdleDelay(rand = Math.random) {
-    return Math.round(IDLE_GAP[0] + rand() * (IDLE_GAP[1] - IDLE_GAP[0]));
+  /** Milliseconds to wait before the next idle action (`factor` stretches or shortens the wait, see mood.js). */
+  function nextIdleDelay(rand = Math.random, factor = 1) {
+    return Math.round((IDLE_GAP[0] + rand() * (IDLE_GAP[1] - IDLE_GAP[0])) * factor);
   }
 
   return { PETS, ORDER, DEFAULT_PET, SKINS, SKIN_ORDER, ACCESSORIES, ACCESSORY_ORDER, IDLE_ACTIONS, IDLE_GAP, pickIdleAction, nextIdleDelay, MUSTACHES, MUSTACHE_ORDER, REQUIRED_IDS, REQUIRED_CLASSES, buildPet, faceMarkup, mix, fillColors };

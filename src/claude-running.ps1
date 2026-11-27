@@ -4,6 +4,7 @@
 #          claude=none                   it is not
 #   f  ->  fg=<left>,<top>,<right>,<bottom>   the foreground window, in screen pixels
 #          fg=none                       nothing usable (a desktop, the taskbar, or a window of the pet itself)
+#   c  ->  ctrl=1 / ctrl=0               is a Ctrl key held down right now
 # Only the Desktop app counts: the Claude Code engines that also run as claude.exe live in a different folder.
 param(
   [string]$PathLike = '*\WindowsApps\Claude_*\app\Claude.exe',
@@ -21,6 +22,7 @@ public static class PetWin {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vKey);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassName(IntPtr h, StringBuilder s, int max);
 }
 "@
@@ -48,10 +50,17 @@ function Get-Foreground {
   return "fg=$($r.Left),$($r.Top),$($r.Right),$($r.Bottom)"
 }
 
+# The real keyboard state. Mouse events forwarded to a click-through window do not reliably carry the Ctrl flag, so the pet asks here.
+function Get-Ctrl {
+  if (([PetWin]::GetAsyncKeyState(0x11) -band 0x8000) -ne 0) { return 'ctrl=1' }
+  return 'ctrl=0'
+}
+
 while ($null -ne ($line = [Console]::In.ReadLine())) {
   $answer = switch ($line.Trim()) {
     's' { Get-ClaudePath }
     'f' { Get-Foreground }
+    'c' { Get-Ctrl }
     default { 'unknown' }
   }
   [Console]::Out.WriteLine($answer)

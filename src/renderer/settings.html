@@ -85,6 +85,10 @@
         <p class="hint">A chat that keeps waiting on a question or an approval plays its sound again after this long.</p>
         <div id="remind" class="seg" role="radiogroup" aria-label="Repeat reminder"></div>
 
+        <h2>When a chat that started other chats finishes</h2>
+        <p class="hint">A workflow chat that starts other chats usually says "done" itself right after one of them finishes, which would be two alerts. Questions and approvals always alert.</p>
+        <div id="nested" class="seg" role="radiogroup" aria-label="Alerts for started chats"></div>
+
         <h2>Auto-hide</h2>
         <p class="hint">Hide the pet when it is not needed. Clicking the tray icon shows it again for a while.</p>
         <div id="autohide" class="seg" role="radiogroup" aria-label="Auto-hide"></div>
@@ -97,6 +101,14 @@
         <h2>Gets angry after waiting</h2>
         <p class="hint">When a chat has been waiting on a question or an approval for this long, the pet turns angry.</p>
         <div id="patience" class="seg" role="radiogroup" aria-label="Gets angry after waiting"></div>
+
+        <h2>Time of day</h2>
+        <p class="hint">A calm pet is sleepy late at night (23:00 to 06:00) and perky in the morning (06:00 to 10:00). A chat that needs you always looks the way its state says.</p>
+        <label class="switch"><input type="checkbox" id="mood-memory"><span class="track"></span><span class="label">Sleepy at night, perky in the morning</span></label>
+
+        <h2>Pet per project</h2>
+        <p class="hint">Right-click a chat in the list and pick <b>Pet for this project</b>. While a chat of that project needs you, the pet shows that character; otherwise your usual one. Size and accessories stay the same.</p>
+        <div id="project-pets" class="project-pets"></div>
 
         <h2>Chats finished today</h2>
         <p class="hint">A small counter in the header of the chat list. Only the date and the number are saved.</p>
@@ -151,9 +163,23 @@
         <p class="hint">The Chat tab of Claude Desktop has no hooks, so Claus watches its Stop button instead and chimes when a reply is finished. This only works while the Claude window is on screen and not covered by other windows (on a second monitor, or side by side): Windows stops a covered window from updating, so a reply that finishes behind other windows is not noticed. It also only sees the conversation that is showing: once you open another tab in Claude (Code, Cowork), a reply still streaming can no longer be followed. No message text is read. This keeps Claude Desktop's accessibility support switched on while it runs.</p>
         <label class="switch"><input type="checkbox" id="watch-chat"><span class="track"></span><span class="label">Notice replies in the Chat tab</span></label>
 
+        <h2>Claude Code in WSL</h2>
+        <p class="hint">Show chats of Claude Code that run inside WSL. The hooks there call the Windows curl to reach Claus on this computer (127.0.0.1), so nothing is opened to the network. Only distros that are already running are looked at.</p>
+        <label class="switch"><input type="checkbox" id="wsl"><span class="track"></span><span class="label">Show chats from WSL</span></label>
+        <p id="wsl-state" class="status"></p>
+        <div class="actions"><button type="button" id="wsl-hooks-install" class="btn">Install WSL hooks...</button><button type="button" id="wsl-hooks-remove" class="btn">Remove WSL hooks...</button></div>
+
         <h2>Updates</h2>
+        <p class="hint">Claus can look for a newer version on GitHub every few hours. That is one request to github.com, which sees your IP address like any website does; nothing about you or your chats is sent. Nothing is downloaded or installed without a click. Switch it off and Claus only checks when you press the button.</p>
+        <label class="switch"><input type="checkbox" id="update-auto"><span class="track"></span><span class="label">Check for updates automatically</span></label>
         <p id="update-state" class="status"></p>
         <div class="actions"><button type="button" id="update-check" class="btn">Check for updates</button><button type="button" id="update-go" class="btn" hidden></button></div>
+
+        <h2>Choose a version</h2>
+        <p class="hint">Install any released version, including an older one such as 0.1.0. The list comes from the GitHub releases of Claus and is only fetched when you press the button.</p>
+        <div class="actions"><button type="button" id="versions-load" class="btn">Show versions</button></div>
+        <div id="versions-box" class="actions" hidden><select id="version-pick" aria-label="Version"></select><button type="button" id="version-go" class="btn">Install this version...</button></div>
+        <p id="versions-state" class="status"></p>
         <p id="version" class="hint"></p>
       </div>
     </section>

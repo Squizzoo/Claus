@@ -6,6 +6,8 @@ const DEFAULTS = {
   setupAsked: false, // the first-run dialog has been shown (whatever was answered): it never nags twice
   login: false, // start with Windows
   followClaude: false, // hide while Claude Desktop is not running, show again when it is
+  updateCheck: true, // look for a newer version on GitHub now and then (one request to github.com); off = only when you click Check for updates
+  wsl: false, // also show Claude Code chats that run inside WSL (a hook through Windows curl, plus the registry of the running distros)
   watchChat: false, // also notice the Chat tab of Claude Desktop (no hooks there: its Stop button is watched through UI Automation)
 };
 
