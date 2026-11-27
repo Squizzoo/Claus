@@ -15,13 +15,34 @@
   const MARATHON_MS = 15 * 60_000; // one turn that runs this long makes the pet tired (same number as state.js)
   const BUSY_CHATS = 3; // this many chats working at once make the pet frantic
 
+  // What a working pet does now and then, by what its chats are doing (keys: state.js ACTIVITIES, plus busy and marathon, which win).
+  // Only actions that keep the pet where it is: props are drawn outside the bobbing body, so a hop or a spin would leave the laptop behind.
+  const WORK_ACTIONS = {
+    type: ['look', 'stretch', 'wag'],
+    read: ['look', 'yawn'],
+    web: ['look', 'wag'],
+    run: ['look', 'wag'],
+    think: ['look', 'stretch'],
+    work: ['look', 'wag', 'stretch'],
+    busy: ['wag'],
+    marathon: ['yawn', 'stretch'],
+  };
+  const ACTIVITY_KEYS = ['type', 'read', 'web', 'run', 'think', 'work'];
+  const WORK_GAP = [10_000, 25_000]; // wait between two of them while working, in ms (the temperament stretches or shortens it)
+
+  /** The actions a working pet may pick from: busy first, then marathon, then the activity; anything unknown counts as plain work. */
+  function workActions({ doing, busy = false, marathon = false } = {}) {
+    if (busy) return WORK_ACTIONS.busy;
+    if (marathon) return WORK_ACTIONS.marathon;
+    return ACTIVITY_KEYS.includes(doing) ? WORK_ACTIONS[doing] : WORK_ACTIONS.work;
+  }
+
   // Every prop and the root classes that show it: the contract between this file, pet.css and the tests.
   const PROPS = {
     laptop: ['doing-type'],
     book: ['doing-read'],
     globe: ['doing-web'],
     terminal: ['doing-run'],
-    bulb: ['doing-think'], // an idea, not a bubble: a working pet already wears a speech bubble
     sweat: ['busy'],
     coffee: ['marathon'],
     zzz: ['act-nap'], // a sleeping pet (no chats) already has its own zz speech bubble
@@ -68,12 +89,6 @@
       + `<circle class="globe" r="11"/><ellipse class="globe-line" rx="4.5" ry="11"/><path class="globe-line" d="M-11 0 L11 0 M-9 -5.5 L9 -5.5 M-9 5.5 L9 5.5"/>`
       + `</g></g></g>`;
 
-    const bulb = `<g class="prop prop-bulb"><g transform="translate(${f(Math.max(28, gx))} ${f(Math.max(32, gy))}) scale(1.3)"><g class="bulb-glow">`
-      + `<path class="bulb-ray" d="M0 -19 L0 -14 M-15 -12 L-11 -9 M15 -12 L11 -9 M-19 0 L-14 0 M19 0 L14 0"/>`
-      + `<circle class="bulb-glass" r="9"/><path class="bulb-fil" d="M-3 6 L-3 0 L0 -3 L3 0 L3 6"/>`
-      + `<rect class="bulb-base" x="-4.5" y="8" width="9" height="6" rx="2"/>`
-      + `</g></g></g>`;
-
     const sweat = `<g class="prop prop-sweat"><g transform="translate(${f(tx + 36)} ${f(ty + 6)})"><path class="sweat" d="M0 0 C-6 9 -6 15 0 15 C6 15 6 9 0 0 Z"/></g></g>`;
 
     const coffee = `<g class="prop prop-coffee"><g transform="translate(${f(Math.min(128, lx + 44))} ${f(ly + h - 16)})">`
@@ -98,8 +113,8 @@
 
     const hand = `<g class="prop prop-hand"><ellipse class="paw hand" cx="${f(Math.min(132, mx + 52))}" cy="${f(my - 14)}" rx="7" ry="10"/></g>`;
 
-    return `<g class="props">${laptop}${book}${terminal}${globe}${bulb}${sweat}${coffee}${zzz}${notes}${puff}${heart}${hand}</g>`;
+    return `<g class="props">${laptop}${book}${terminal}${globe}${sweat}${coffee}${zzz}${notes}${puff}${heart}${hand}</g>`;
   }
 
-  return { DOING, PROPS, MARATHON_MS, BUSY_CHATS, markup };
+  return { DOING, PROPS, WORK_ACTIONS, WORK_GAP, MARATHON_MS, BUSY_CHATS, workActions, markup };
 });

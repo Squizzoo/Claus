@@ -28,7 +28,7 @@ test('the props markup is complete, inside the CSP and has no missing measuremen
   }
 });
 
-test('every prop is shown by classes that pet.css knows, and every activity has a prop', () => {
+test('every prop is shown by classes that pet.css knows, and every activity has a look', () => {
   const css = fs.readFileSync(path.join(__dirname, '../src/renderer/pet.css'), 'utf8');
   for (const [name, classes] of Object.entries(Props.PROPS)) {
     for (const c of classes) assert.ok(css.includes(`.${c}`) && css.includes(`.prop-${name}`), `pet.css never shows .prop-${name} for .${c}`);
@@ -59,4 +59,26 @@ test('the ant is a pet with antennae that wag', () => {
   const pet = PetArt.buildPet('ant');
   assert.equal(pet.label, 'Ant');
   assert.ok(pet.hasTail && pet.markup.includes('class="tail"'));
+});
+
+test('the thinking pet has no prop of its own: the working speech bubble is the only bubble', () => {
+  const m = Props.markup(PetArt.buildPet('cat').anchors);
+  assert.ok(!/prop-(bulb|thought)/.test(m));
+  assert.ok(!Object.values(Props.PROPS).some((classes) => classes.includes('doing-think')));
+});
+
+test('a working pet only does actions that keep it over its prop, picked by what it is doing', () => {
+  const still = ['look', 'wag', 'yawn', 'stretch', 'sneeze'];
+  for (const [key, names] of Object.entries(Props.WORK_ACTIONS)) {
+    assert.ok(names.length > 0, key);
+    for (const n of names) assert.ok(PetArt.IDLE_ACTIONS[n] && still.includes(n), `${key}: ${n}`);
+  }
+  for (const a of ACTIVITIES) assert.ok(Props.WORK_ACTIONS[a], `no working actions for ${a}`);
+  assert.deepEqual(Props.workActions({ doing: 'type' }), Props.WORK_ACTIONS.type);
+  assert.deepEqual(Props.workActions({ doing: 'type', busy: true, marathon: true }), Props.WORK_ACTIONS.busy);
+  assert.deepEqual(Props.workActions({ doing: 'read', marathon: true }), Props.WORK_ACTIONS.marathon);
+  for (const odd of ['', undefined, 'constructor', '__proto__']) assert.deepEqual(Props.workActions({ doing: odd }), Props.WORK_ACTIONS.work);
+  assert.ok(Props.WORK_GAP[0] > 0 && Props.WORK_GAP[1] > Props.WORK_GAP[0]);
+  const css = fs.readFileSync(path.join(__dirname, '../src/renderer/pet.css'), 'utf8');
+  for (const n of ['look', 'stretch', 'wag']) assert.ok(css.includes(`.mood-working.act-${n}`), `${n} must win over the working animation`);
 });

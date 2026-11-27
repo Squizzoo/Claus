@@ -177,3 +177,10 @@ test('a pet with a fixed light face patch keeps a dark mustache on the black ski
   assert.equal(buildPet('penguin', 'black').vars['--stache'], buildPet('penguin').vars['--stache']);
   assert.equal(buildPet('robot').vars['--stache'], buildPet('cat', 'black').vars['--stache']);
 });
+
+test('pickIdleAction keeps to the allowed actions, and a tail-less pet that may only wag looks around instead', () => {
+  const seen = new Set();
+  for (let i = 0; i < 200; i++) seen.add(PetArt.pickIdleAction(true, () => i / 200, [], ['look', 'yawn']));
+  assert.deepEqual([...seen].sort(), ['look', 'yawn']);
+  assert.equal(PetArt.pickIdleAction(false, () => 0.5, [], ['wag']), 'look');
+});
