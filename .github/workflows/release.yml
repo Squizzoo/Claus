@@ -1,0 +1,151 @@
+name: Release
+
+# Builds Claus on a GitHub-hosted runner, signs it with SignPath (free code signing provided by SignPath.io, certificate by SignPath
+# Foundation) and publishes a GitHub release. Nothing is published until a reviewer approves the "release" environment.
+# Setup that cannot live in this file: see RELEASING.md.
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      allow_unsigned:
+        description: 'Publish WITHOUT code signing (only while SignPath is not set up yet; the release is marked as unsigned)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PRODUCT_NAME: Claus
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Product name and version
+        id: meta
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          PRODUCT=$(node -p "require('./package.json').build.productName")
+          [ "$PRODUCT" = "$PRODUCT_NAME" ] || { echo "::error::productName is '$PRODUCT', expected '$PRODUCT_NAME'"; exit 1; }
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${VERSION}"; exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Building ${PRODUCT} ${VERSION} from ${GITHUB_SHA}"
+
+      - run: npm ci
+      - run: npm test
+
+      - name: Build the installer and the portable exe (unsigned)
+        run: npx electron-builder --win --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Collect what gets signed
+        shell: bash
+        run: |
+          mkdir unsigned
+          cp "dist/Claus-Setup-${{ steps.meta.outputs.version }}.exe" "dist/Claus-${{ steps.meta.outputs.version }}-portable.exe" unsigned/
+          ls -l unsigned
+
+      - name: Upload the unsigned files
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-${{ steps.meta.outputs.version }}
+          path: unsigned/*
+          if-no-files-found: error
+          retention-days: 14
+
+  sign:
+    name: Sign with SignPath
+    needs: build
+    if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # for .signpath/artifact-configuration.xml
+      - name: Submit the signing request
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'Claus' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG || 'initial' }}
+          github-artifact-id: ${{ needs.build.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-${{ needs.build.outputs.version }}
+          path: signed/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish (needs approval)
+    needs: [build, sign]
+    # signed, or (while SignPath is not set up) unsigned on purpose
+    if: ${{ always() && needs.build.result == 'success' && (needs.sign.result == 'success' || (needs.sign.result == 'skipped' && inputs.allow_unsigned)) }}
+    runs-on: ubuntu-latest
+    # The environment "release" has required reviewers: the job waits here until one of them approves (RELEASING.md).
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      SIGNED: ${{ needs.sign.result == 'success' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.sign.result == 'success' && format('signed-{0}', needs.build.outputs.version) || format('unsigned-{0}', needs.build.outputs.version) }}
+          path: release
+
+      # Signing changes the installer, so latest.yml (which electron-updater checks the download against) is rebuilt from the file that is published.
+      # The .blockmap of the unsigned build is not published: without it an update is a full download, which is always correct.
+      - name: latest.yml and checksums
+        run: |
+          node scripts/release-yml.js "release/Claus-Setup-${VERSION}.exe" release/latest.yml
+          (cd release && sha256sum Claus-* latest.yml > SHA256SUMS.txt && cat SHA256SUMS.txt)
+
+      - name: Build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            release/Claus-Setup-*.exe
+            release/Claus-*-portable.exe
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES="Built by GitHub Actions from ${GITHUB_SHA}. Verify a download with: gh attestation verify <file> --repo ${GITHUB_REPOSITORY}"
+          if [ "$SIGNED" != "true" ]; then NOTES="**This build is NOT code signed.** ${NOTES}"; fi
+          gh release create "v${VERSION}" --target "${GITHUB_SHA}" --title "Claus ${VERSION}" --notes "${NOTES}" \
+            "release/Claus-Setup-${VERSION}.exe" "release/Claus-${VERSION}-portable.exe" release/latest.yml release/SHA256SUMS.txt

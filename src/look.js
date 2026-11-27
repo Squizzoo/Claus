@@ -35,6 +35,7 @@ const DEFAULTS = {
   quiet: 'off',
   streak: true, // show "n finished today" in the list header
   showTokens: true, // show a chat's token count on its row
+  mood: true, // mood memory: a calm pet is sleepy late at night and perky in the morning
 };
 
 // Every setting is one value out of a fixed list.
@@ -51,6 +52,7 @@ function choices() {
     quiet: QUIET_ORDER,
     streak: [true, false],
     showTokens: [true, false],
+    mood: [true, false],
   };
 }
 
@@ -101,4 +103,51 @@ function isQuiet(date, quietId) {
   return q.from < q.to ? h >= q.from && h < q.to : h >= q.from || h < q.to;
 }
 
-module.exports = { DEFAULTS, sanitize, merge, choices, isQuiet, QUIET, QUIET_ORDER, PATIENCE, BEHAVIOUR_DEFAULTS, sanitizeBehaviour, SIZES, SIZE_ORDER, OPACITIES, sizePx };
+// ---------- one pet per project ----------
+// A project (see projectKey in state.js) can have its own pet and skin. Only those two: size, accessory and mustache stay global.
+// The pet window is a single window; it shows the project's pet while a chat of that project needs you, otherwise the global look.
+const PROJECT_LOOK_MAX = 50;
+const NEEDS_YOU = new Set(['done', 'question', 'approval']);
+const ownKey = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+/** { [projectKey]: { pet, skin } } with only valid entries (known pet and skin, sane key, at most PROJECT_LOOK_MAX). */
+function sanitizeProjectLooks(input) {
+  const src = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const out = {};
+  for (const [key, v] of Object.entries(src)) {
+    if (Object.keys(out).length >= PROJECT_LOOK_MAX) break;
+    if (typeof key !== 'string' || !key || key.length > 300 || key === '__proto__') continue;
+    if (!v || typeof v !== 'object' || !PetArt.ORDER.includes(v.pet)) continue;
+    out[key] = { pet: v.pet, skin: PetArt.SKIN_ORDER.includes(v.skin) ? v.skin : 'default' };
+  }
+  return out;
+}
+
+/** Sets (pet = a pet id) or clears (pet = null/unknown) the look of one project; returns the new map. */
+function setProjectLook(map, project, pet, skin) {
+  const out = sanitizeProjectLooks(map);
+  const key = String(project || '');
+  if (!key) return out;
+  delete out[key];
+  if (PetArt.ORDER.includes(pet)) out[key] = { pet, skin: PetArt.SKIN_ORDER.includes(skin) ? skin : 'default' };
+  return sanitizeProjectLooks(out);
+}
+
+/**
+ * The look to draw now. Only a chat that needs you (done, question, approval; not muted) can switch the pet, and the most recent
+ * one wins (ties: the id that sorts first), so two busy projects never make the pet flip with every hook. No such chat, or a
+ * project without its own pet: the global look.
+ */
+function effectiveLook(sessions, base, projectLooks) {
+  const looks = projectLooks && typeof projectLooks === 'object' ? projectLooks : {};
+  let best = null;
+  for (const s of sessions || []) {
+    if (s.muted || !NEEDS_YOU.has(s.state)) continue;
+    if (!best || s.since > best.since || (s.since === best.since && s.id < best.id)) best = s;
+  }
+  if (!best || !best.project || !ownKey(looks, best.project)) return base; // the newest chat that needs you has no pet of its own: the global one
+  const own = looks[best.project];
+  return { ...base, pet: own.pet, skin: own.skin };
+}
+
+module.exports = { DEFAULTS, sanitize, merge, choices, isQuiet, sanitizeProjectLooks, setProjectLook, effectiveLook, PROJECT_LOOK_MAX, QUIET, QUIET_ORDER, PATIENCE, BEHAVIOUR_DEFAULTS, sanitizeBehaviour, SIZES, SIZE_ORDER, OPACITIES, sizePx };

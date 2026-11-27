@@ -5,6 +5,8 @@
 // The state machine is pure (`reduce`) and unit tested; `createUpdater` wires it to electron-updater, which is only required
 // when an update is actually checked.
 
+const { feedUrl } = require('./releases');
+
 const EMPTY = { status: 'idle', version: '', percent: 0, error: '' };
 
 /** `unsupported` (dev, portable), `idle`, `checking`, `current`, `available`, `downloading`, `ready`, `error`. */
@@ -47,7 +49,12 @@ function describe(state) {
   }
 }
 
-function createUpdater({ supported, onChange, log = () => {} }) {
+/**
+ * repo: { owner, repo } of the GitHub releases. `useVersion` points the updater at ONE release (a generic feed on its download folder) and
+ * allows going down, so a user can always go back to an older version; the next normal check puts the usual feed back.
+ */
+function createUpdater({ supported, onChange, log = () => {}, repo = null, loadUpdater = () => require('electron-updater').autoUpdater }) {
+  let pinned = false; // a chosen version is the feed right now
   let state = supported ? EMPTY : reduce(EMPTY, { type: 'unsupported' });
   let au = null;
   const set = (event) => {
@@ -59,7 +66,7 @@ function createUpdater({ supported, onChange, log = () => {} }) {
   };
   function load() {
     if (au) return au;
-    ({ autoUpdater: au } = require('electron-updater'));
+    au = loadUpdater();
     au.autoDownload = false; // nothing is downloaded until the user asks
     au.autoInstallOnAppQuit = false;
     au.logger = null;
@@ -73,9 +80,31 @@ function createUpdater({ supported, onChange, log = () => {} }) {
   }
   return {
     state: () => state,
-    check() {
+    /** `auto` is the timer: it leaves a chosen older version alone while that is waiting to be installed. */
+    check({ auto = false } = {}) {
       if (!supported) return Promise.resolve(state);
-      return Promise.resolve().then(() => load().checkForUpdates()).then(() => state, () => state);
+      if (auto && pinned && ['available', 'downloading', 'ready'].includes(state.status)) return Promise.resolve(state);
+      return Promise.resolve().then(() => {
+        const u = load();
+        if (pinned && repo) {
+          u.allowDowngrade = false;
+          u.setFeedURL({ provider: 'github', owner: repo.owner, repo: repo.repo });
+          pinned = false;
+        }
+        return u.checkForUpdates();
+      }).then(() => state, () => state);
+    },
+    /** Looks for one specific version (newer or older than this one). A click on Download and then Install follows, as for any update. */
+    useVersion(version) {
+      const url = repo && feedUrl(repo.owner, repo.repo, version);
+      if (!supported || !url) return Promise.resolve(state);
+      return Promise.resolve().then(() => {
+        const u = load();
+        u.allowDowngrade = true;
+        u.setFeedURL({ provider: 'generic', url });
+        pinned = true;
+        return u.checkForUpdates();
+      }).then(() => state, () => state);
     },
     download() {
       if (!supported || state.status !== 'available') return Promise.resolve(state);

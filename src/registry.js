@@ -18,8 +18,9 @@ function pidAlive(pid) {
 /**
  * Reads the live-session registry Claude Code keeps in ~/.claude/sessions/<pid>.json.
  * Only metadata fields are read; the neighbouring *.key files are never touched.
+ * `alive(pid)` and `domain` let the WSL reader (src/wsl.js) check pids inside a distro and tag its chats.
  */
-function readRegistry(dir = DIR) {
+function readRegistry(dir = DIR, { alive = pidAlive, domain = '' } = {}) {
   let names;
   try {
     names = fs.readdirSync(dir);
@@ -35,7 +36,7 @@ function readRegistry(dir = DIR) {
     } catch {
       continue; // being rewritten right now; next poll gets it
     }
-    if (!pidAlive(j.pid)) continue;
+    if (!alive(j.pid)) continue;
     if (j.kind && j.kind !== 'interactive') continue;
     out.push({
       sessionId: j.sessionId,
@@ -46,7 +47,7 @@ function readRegistry(dir = DIR) {
       hostSessionId: j.hostSessionId,
       entrypoint: j.entrypoint,
       pid: j.pid,
-      pidDomain: j.pidDomain,
+      pidDomain: j.pidDomain || domain || undefined, // a WSL chat is never a Windows pid, even when the file does not say
     });
   }
   return out;

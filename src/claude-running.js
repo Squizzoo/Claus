@@ -20,6 +20,12 @@ function parseForeground(line) {
   return r > l && b > t ? { x: l, y: t, width: r - l, height: b - t } : null;
 }
 
+/** `ctrl=1` -> true, `ctrl=0` -> false, anything else -> null (no answer). */
+function parseCtrl(line) {
+  const m = /^ctrl=([01])$/.exec(String(line || '').trim());
+  return m ? m[1] === '1' : null;
+}
+
 function createClaudeWatcher({ petPid = process.pid } = {}) {
   const helper = createHelper('claude-running.ps1', { extraArgs: ['-PetPid', String(petPid)], timeoutMs: 6000 });
   return {
@@ -27,8 +33,10 @@ function createClaudeWatcher({ petPid = process.pid } = {}) {
     state: async () => parseState(await helper.ask('s')),
     /** The foreground window's rectangle in screen pixels, or null. */
     foreground: async () => parseForeground(await helper.ask('f')),
+    /** Is a Ctrl key held down right now (true/false), or null when the helper gave no usable answer. */
+    ctrl: async () => parseCtrl(await helper.ask('c')),
     stop: helper.stop,
   };
 }
 
-module.exports = { createClaudeWatcher, parseState, parseForeground };
+module.exports = { createClaudeWatcher, parseState, parseForeground, parseCtrl };

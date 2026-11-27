@@ -1,9 +1,9 @@
 'use strict';
-const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, screen, shell, nativeImage, clipboard, dialog, net } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { SessionStore } = require('./state');
+const { SessionStore, projectKey, basename } = require('./state');
 const { readRegistry } = require('./registry');
 const { createServer, DEFAULT_PORT } = require('./server');
 const { jumpUrl } = require('./jump');
@@ -22,7 +22,9 @@ const jumpHealthLib = require('./jump-health');
 const systemLib = require('./system');
 const hooksLib = require('./hooks-install');
 const updaterLib = require('./updater');
+const releasesLib = require('./releases');
 const { createClaudeWatcher } = require('./claude-running');
+const wslLib = require('./wsl');
 const { createChatWatcher } = require('./chat-watch');
 const { showToast } = require('./toast');
 const { createTranscriptReader } = require('./transcript');
@@ -67,6 +69,7 @@ function loadSettings() {
   }
   settings.prefs = prefsLib.sanitize(settings.prefs);
   settings.look = lookLib.sanitize(settings.look);
+  settings.projectLooks = lookLib.sanitizeProjectLooks(settings.projectLooks);
   settings.notify = notifyLib.sanitize(settings.notify);
   settings.place = placeLib.sanitize(settings.place);
   PET = lookLib.sizePx(settings.look.size);
@@ -268,11 +271,12 @@ function push(opts = {}) {
   lastPushAt = Date.now();
   store.takeActivity(); // this push shows it
   const together = collectFinished();
+  const base = store.snapshot();
   const snap = {
-    ...store.snapshot(),
+    ...base,
     muted: settings.muted,
     prefs: settings.prefs,
-    look: settings.look,
+    look: lookLib.effectiveLook(base.sessions, settings.look, settings.projectLooks), // a chat that needs you can bring its project's own pet
     finishedToday: celebrateLib.finishedToday(settings.streak, new Date()),
     daily: todaySummary(),
     snoozeUntil: snoozed() ? settings.notify.snoozeUntil : 0,
@@ -283,7 +287,7 @@ function push(opts = {}) {
   win.webContents.send('state', { ...snap, expanded: false, paintId: opts.petPaintId });
   if (panelWin && !panelWin.isDestroyed()) panelWin.webContents.send('state', { ...snap, expanded: panelH > 0, paintId: opts.paintId });
   sendSettings();
-  dispatchAlerts(store.takeAlerts(), together, petShown && win.isVisible()); // before updateAutoHide below may show the pet
+  dispatchAlerts(filterNestedAlerts(store.takeAlerts()), together, petShown && win.isVisible()); // before updateAutoHide below may show the pet
   if (together && !SHOT_RUN) celebrate(together); // shot runs trigger it themselves, so it does not land in other pictures
   updateAutoHide(snap);
 }
@@ -299,7 +303,10 @@ async function refreshTokens(only) {
     if (!only) transcripts.keepOnly(store.ids());
     let changed = false;
     for (const id of ids) {
-      if (await transcripts.refresh(id)) changed = store.setUsage(id, transcripts.totals(id)) || changed;
+      if (await transcripts.refresh(id)) {
+        changed = store.setUsage(id, transcripts.totals(id)) || changed;
+        changed = store.setChildren(id, transcripts.children(id)) || changed; // which chats this one started, for the nested rows and the alert filter
+      }
     }
     if (changed) push();
   } finally {
@@ -308,6 +315,14 @@ async function refreshTokens(only) {
 }
 
 // ---------- alerts: sound, toast, focus and snooze ----------
+/** A chat that started other chats and the chats it started both say "done": the setting decides which of the two alerts goes out. */
+function filterNestedAlerts(alerts) {
+  return alerts.filter((a) => {
+    const keep = notifyLib.nestedAlertDecision({ mode: settings.notify.nested, state: a.state, ctx: store.nestedContext(a.id) });
+    if (!keep) debugLog(`alert held back (nested, ${settings.notify.nested}) ${a.id.slice(0, 8)}`);
+    return keep;
+  });
+}
 const FOCUS_RACE_MS = 300; // how long an alert waits to learn which chat you are looking at
 const TOAST_ALLOWED = !SHOT_RUN && (PORT === DEFAULT_PORT || process.env.CLAUDE_PET_TOAST === '1'); // test instances must not fill the Action Center
 
@@ -444,11 +459,17 @@ function hidePet() {
 }
 
 // ---------- click-through ----------
-// While nothing needs you the pet window lets clicks fall through to what is below it. Ctrl + hover gets it back (the forwarded mouse moves tell us).
+// While nothing needs you the pet window lets clicks fall through to what is below it. Holding Ctrl over the pet grabs it.
+// Ctrl is read from the real keyboard state (the helper's `c` question): the mouse moves that a click-through window still gets do not carry the Ctrl flag.
+// A grab lasts while the cursor stays on the pet and a moment after, so a slow click or a double-click always lands.
 let clickThrough = false;
 let grabbedAt = 0;
+const cursorOnPet = () => placeLib.cursorOver(screen.getCursorScreenPoint(), petBounds());
 function updateClickThrough(snap) {
   if (!win || win.isDestroyed()) return;
+  const now = Date.now();
+  const inside = cursorOnPet();
+  if (grabbedAt && !inside && now - grabbedAt >= placeLib.GRAB_HOLD_MS) grabbedAt = 0; // the grab is over
   const want = placeLib.clickThroughDecision({
     enabled: settings.place.clickThrough && petShown,
     attention: snap.attention,
@@ -456,17 +477,34 @@ function updateClickThrough(snap) {
     dragging: Boolean(drag),
     settingsOpen: Boolean(settingsWin && !settingsWin.isDestroyed()),
     grabbedAt,
-    now: Date.now(),
+    cursorInside: inside,
+    now,
   });
   if (want === clickThrough) return;
   clickThrough = want;
   debugLog(`click-through ${want ? 'on' : 'off'}`);
   win.setIgnoreMouseEvents(want, want ? { forward: true } : undefined);
 }
-ipcMain.on('pet-grab', () => {
+function grab() {
   grabbedAt = Date.now();
   updateClickThrough(store.snapshot());
-});
+}
+ipcMain.on('pet-grab', grab);
+let askingCtrl = false;
+/** Every 150 ms while click-through is on: is Ctrl held with the cursor on the pet? Then the pet becomes clickable. */
+async function pollClickThrough() {
+  if (!settings.place.clickThrough || !petShown) return;
+  updateClickThrough(store.snapshot()); // ends a grab as soon as the cursor has left
+  if (!clickThrough || askingCtrl || !cursorOnPet()) return;
+  askingCtrl = true;
+  try {
+    if (await claudeWatcher().ctrl()) grab();
+  } catch {
+    /* no answer: the renderer's own Ctrl check still works */
+  } finally {
+    askingCtrl = false;
+  }
+}
 
 /** Called after every push and once a second (the grace before hiding runs on time, not on events). */
 function updateAutoHide(snap) {
@@ -643,9 +681,104 @@ async function firstRun() {
   await changeHooks('install', null);
 }
 
+// ---------- WSL ----------
+// Chats of Claude Code inside WSL (opt-in). Their hooks reach the pet through the Windows curl (see wsl.js); this adds their registry,
+// read only from distros that are running right now, because looking into a stopped one would start its VM.
+let wslState = { running: 0, hooks: '', entries: [] };
+const wslHome = new Map(); // distro -> home, asked once
+let wslBusy = false;
+const realDistro = (d) => !/^docker-desktop/i.test(d); // Docker's own distros are no Claude Code machines
+async function pollWsl() {
+  if (SHOT_RUN || wslBusy) return;
+  if (!settings.system.wsl) {
+    if (wslState.entries.length || wslState.running) {
+      wslState = { running: 0, hooks: '', entries: [] };
+      if (store.syncRegistry([...readRegistry()])) push();
+    }
+    return;
+  }
+  wslBusy = true;
+  try {
+    const running = (await wslLib.runningDistros()).filter(realDistro);
+    const entries = [];
+    let withHooks = 0;
+    for (const distro of running) {
+      if (!wslHome.has(distro)) wslHome.set(distro, await wslLib.homeOf(distro));
+      const home = wslHome.get(distro);
+      if (!home) continue;
+      const pids = await wslLib.livePids(distro);
+      if (pids) entries.push(...readRegistry(wslLib.wslPath(distro, home, '.claude/sessions'), { alive: (pid) => pids.has(pid), domain: `wsl:${distro}` }));
+      if (hooksLib.status({ file: wslLib.wslPath(distro, home, '.claude/settings.json'), port: PORT }).complete) withHooks++;
+    }
+    const hooks = running.length ? `${withHooks} of ${running.length} running distro${running.length === 1 ? '' : 's'} have the hooks` : '';
+    const changed = JSON.stringify(entries) !== JSON.stringify(wslState.entries) || wslState.running !== running.length || wslState.hooks !== hooks;
+    wslState = { running: running.length, hooks, entries };
+    if (changed) {
+      debugLog(`wsl: ${running.length} running, ${entries.length} chats`);
+      store.syncRegistry([...readRegistry(), ...entries]);
+      push();
+      sendSettings();
+    }
+  } catch (err) {
+    debugLog(`wsl poll failed: ${err.message}`);
+  } finally {
+    wslBusy = false;
+  }
+}
+
+/** Adds or removes the hooks inside every WSL distro (the settings file of its default user), after a dialog that lists the files. */
+async function changeWslHooks(action, parent) {
+  const box = (options) => {
+    const p = parent && !parent.isDestroyed() ? parent : null;
+    return p ? dialog.showMessageBox(p, options) : dialog.showMessageBox(options);
+  };
+  const installing = action === 'install';
+  const plans = [];
+  for (const distro of (await wslLib.allDistros()).filter(realDistro)) {
+    const home = await wslLib.homeOf(distro); // starts the distro if it is stopped: the user just asked for this
+    const file = home && wslLib.wslPath(distro, home, '.claude/settings.json');
+    if (!file) continue;
+    try {
+      const plan = hooksLib.plan({ action, file, port: PORT, wsl: true });
+      if (plan.changed) plans.push(plan);
+    } catch (err) {
+      debugLog(`wsl hooks ${action} skipped for ${distro}: ${err.message}`);
+    }
+  }
+  if (!plans.length) {
+    await box({ type: 'info', title: 'Claus', message: installing ? 'Nothing to install: no WSL distro has a Claude Code settings file that needs the hooks.' : 'There are no Claus hooks in WSL to remove.' });
+    return 'unchanged';
+  }
+  const { response } = await box({
+    type: 'question',
+    title: 'Claus',
+    buttons: [installing ? 'Install WSL hooks' : 'Remove WSL hooks', 'Not now'],
+    defaultId: 0,
+    cancelId: 1,
+    message: installing ? 'Let Claus hear from Claude Code inside WSL?' : 'Remove the Claus hooks from WSL?',
+    detail: `${installing ? 'Adds' : 'Removes'} the Claus entries in:\n\n${plans.map((p) => p.file).join('\n')}\n\n` +
+      (installing ? `Each entry runs the Windows curl (${wslLib.hookCommand(PORT).split(' ')[0]}) to POST the event to 127.0.0.1:${PORT} on this computer, nothing else. ` : '') +
+      'Other hooks stay as they are and a backup is saved next to each file as settings.json.pet-bak.',
+  });
+  if (response !== 0) return 'cancelled';
+  for (const plan of plans) {
+    try {
+      hooksLib.apply(plan);
+      debugLog(`wsl hooks ${action} done`);
+    } catch (err) {
+      debugLog(`wsl hooks ${action} failed: ${err.message}`);
+      await box({ type: 'error', title: 'Claus', message: 'WSL settings could not be changed', detail: `${plan.file}\n\n${err.message}` });
+      return 'failed';
+    }
+  }
+  pollWsl();
+  return 'done';
+}
+
 function updateSystem(patch) {
   const before = settings.system;
   settings.system = systemLib.merge(settings.system, patch);
+  if (settings.system.wsl !== before.wsl) pollWsl();
   if (settings.system.login !== before.login && caps().login) {
     try {
       app.setLoginItemSettings({ openAtLogin: settings.system.login });
@@ -714,7 +847,11 @@ async function pollChats() {
   }
 }
 
+// The GitHub repository the releases live in (from the build settings in package.json).
+const publishCfg = (require('../package.json').build || {}).publish;
+const releaseRepo = Array.isArray(publishCfg) && publishCfg[0] && publishCfg[0].provider === 'github' ? { owner: publishCfg[0].owner, repo: publishCfg[0].repo } : null;
 const updater = updaterLib.createUpdater({
+  repo: releaseRepo,
   supported: app.isPackaged && !IS_PORTABLE && !SHOT_RUN,
   onChange: () => {
     rebuildTray();
@@ -722,8 +859,42 @@ const updater = updaterLib.createUpdater({
   },
   log: debugLog,
 });
+// The list of versions to choose from. Only fetched when you ask for it (Settings > System > Updates): one request to api.github.com.
+let versions = { status: 'idle', list: [], error: '' };
+async function loadVersions() {
+  if (!releaseRepo || versions.status === 'loading') return;
+  versions = { status: 'loading', list: [], error: '' };
+  sendSettings(true);
+  try {
+    const res = await net.fetch(`https://api.github.com/repos/${releaseRepo.owner}/${releaseRepo.repo}/releases?per_page=30`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'Claus' } });
+    if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+    versions = { status: 'ready', list: releasesLib.parseReleases(await res.json(), app.getVersion()), error: '' };
+  } catch (err) {
+    versions = { status: 'error', list: [], error: String(err && err.message || 'failed').slice(0, 100) };
+  }
+  sendSettings(true);
+}
+/** Install a version from the list (older ones too), after a dialog that says what happens. Only versions that were in the list count. */
+async function chooseVersion(version, parent) {
+  const entry = versions.list.find((v) => v.version === version);
+  if (!entry || entry.relation === 'same' || !caps().updates) return;
+  const older = entry.relation === 'older';
+  const p = parent && !parent.isDestroyed() ? parent : null;
+  const options = {
+    type: 'question',
+    title: 'Claus',
+    buttons: [older ? `Go back to ${version}` : `Update to ${version}`, 'Not now'],
+    defaultId: 0,
+    cancelId: 1,
+    message: older ? `Go back to version ${version}?` : `Update to version ${version}?`,
+    detail: `Claus looks for version ${version} on GitHub. Nothing is downloaded until you click Download, and nothing is installed until you click Install. Your settings stay as they are.`,
+  };
+  const { response } = await (p ? dialog.showMessageBox(p, options) : dialog.showMessageBox(options));
+  if (response === 0) updater.useVersion(version);
+}
 function updateAction(what) {
   if (what === 'check') updater.check();
+  else if (what === 'versions') loadVersions();
   else if (what === 'download') updater.download();
   else if (what === 'install') updater.install();
 }
@@ -748,6 +919,7 @@ function systemSnapshot() {
   return {
     followClaude: settings.system.followClaude,
     watchChat: settings.system.watchChat,
+    wsl: { enabled: settings.system.wsl, running: wslState.running, hooks: wslState.hooks },
     login,
     loginAvailable: c.login,
     updatesAvailable: c.updates,
@@ -756,6 +928,8 @@ function systemSnapshot() {
     packaged: app.isPackaged,
     hooks: { exists: h.exists, missing: Boolean(h.missing), installed: h.installed, total: Object.keys(hooksLib.EVENTS).length, complete: h.complete, file: h.file, error: h.error || '' },
     update: { status: u.status, version: u.version, percent: u.percent, text: updaterLib.describe(u) },
+    updateCheck: settings.system.updateCheck,
+    versions: { ...versions, current: app.getVersion(), available: Boolean(releaseRepo) },
   };
 }
 
@@ -770,7 +944,7 @@ function settingsSnapshot() {
     daily: todaySummary(),
     quietNow: lookLib.isQuiet(new Date(), settings.look.quiet),
     notify: { ...settings.notify, snoozeUntil: snoozed() ? settings.notify.snoozeUntil : 0 },
-    notifyChoices: { toast: notifyLib.TOAST, kinds: notifyLib.KINDS, remind: notifyLib.REMIND, autoHide: notifyLib.AUTO_HIDE, snooze: notifyLib.SNOOZE },
+    notifyChoices: { toast: notifyLib.TOAST, kinds: notifyLib.KINDS, remind: notifyLib.REMIND, autoHide: notifyLib.AUTO_HIDE, snooze: notifyLib.SNOOZE, nested: notifyLib.NESTED },
     quiet: lookLib.QUIET_ORDER.map((id) => ({ id, label: lookLib.QUIET[id].label })),
     patience: lookLib.PATIENCE,
     sizes: lookLib.SIZE_ORDER.map((id) => ({ id, label: lookLib.SIZES[id].label, px: lookLib.SIZES[id].px })),
@@ -779,8 +953,15 @@ function settingsSnapshot() {
     placeChoices: { snap: placeLib.SNAP, monitor: placeLib.MONITOR },
     jump: { status: jumpHealthLib.status(jumpHealth), version: jumpHealth.version, okVersion: jumpHealth.okVersion },
     system: systemSnapshot(),
+    projectPets: Object.entries(settings.projectLooks || {}).map(([key, v]) => ({ key, folder: basename(key), pet: v.pet, label: PetArt.PETS[v.pet].label })),
   };
 }
+ipcMain.on('clear-project-look', (_e, key) => {
+  if (typeof key !== 'string' || !Object.prototype.hasOwnProperty.call(settings.projectLooks || {}, key)) return;
+  settings.projectLooks = lookLib.setProjectLook(settings.projectLooks, key, null);
+  saveSettings();
+  push();
+});
 let lastSettingsSent = '';
 /** Tells the settings window what changed; skipped when nothing did (push() runs on every hook event and poll). */
 function sendSettings(force = false) {
@@ -1055,6 +1236,14 @@ const rowActions = {
   pin: (id) => updatePrefs({ pinned: toggled(settings.prefs.pinned, id) }),
   mute: (id) => updatePrefs({ mutedChats: toggled(settings.prefs.mutedChats, id) }),
 };
+/** 'ppet:dog' / 'ppet:' from the "Pet for this project" submenu: sets or clears the project's own pet. */
+function setProjectPet(info, petId) {
+  const key = projectKey(info.cwd);
+  if (!key) return;
+  settings.projectLooks = lookLib.setProjectLook(settings.projectLooks, key, petId, settings.look.skin);
+  saveSettings();
+  push();
+}
 const toggled = (arr, v) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
 
 ipcMain.on('row-menu', (_e, id) => {
@@ -1062,16 +1251,19 @@ ipcMain.on('row-menu', (_e, id) => {
   const info = store.infoOf(id);
   if (!info || !panelWin || panelWin.isDestroyed()) return;
   debugLog(`ipc row-menu ${id.slice(0, 8)}`);
-  const template = rowMenuTemplate(info, settings.prefs).map((item) => {
+  const own = (settings.projectLooks || {})[projectKey(info.cwd)];
+  const attach = (item) => {
+    if (item.submenu) return { ...item, submenu: item.submenu.map(attach) };
     if (!item.id) return item;
-    return {
-      label: item.label,
-      click: () => {
-        debugLog(`row-menu ${item.id} ${id.slice(0, 8)}`);
-        rowActions[item.id](id, info);
-      },
-    };
-  });
+    const entry = { ...item, click: () => {
+      debugLog(`row-menu ${item.id.startsWith('ppet:') ? 'ppet' : item.id} ${id.slice(0, 8)}`);
+      if (item.id.startsWith('ppet:')) setProjectPet(info, item.id.slice(5));
+      else rowActions[item.id](id, info);
+    } };
+    delete entry.id;
+    return entry;
+  };
+  const template = rowMenuTemplate(info, settings.prefs, own ? own.pet : '').map(attach);
   rowMenuOpen = true;
   Menu.buildFromTemplate(template).popup({ window: panelWin, callback: () => { rowMenuOpen = false; } });
 });
@@ -1158,8 +1350,8 @@ function previewSound(req) {
 ipcMain.on('set-look', (_e, patch) => updateLook(patch));
 ipcMain.on('set-behaviour', (_e, patch) => applyBehaviour(patch));
 ipcMain.on('set-notify', (_e, patch) => {
-  const { toast, toastKinds, remindMin, autoHide } = patch && typeof patch === 'object' ? patch : {};
-  updateNotify({ toast, toastKinds, remindMin, autoHide }); // the snooze has its own message: only its presets are accepted
+  const { toast, toastKinds, remindMin, autoHide, nested } = patch && typeof patch === 'object' ? patch : {};
+  updateNotify({ toast, toastKinds, remindMin, autoHide, nested }); // the snooze has its own message: only its presets are accepted
 });
 /** Placement settings (snap, above fullscreen, monitors, click-through): validated, applied, saved. */
 function updatePlace(patch) {
@@ -1183,13 +1375,17 @@ function updatePlace(patch) {
 }
 ipcMain.on('set-place', (_e, patch) => updatePlace(patch));
 ipcMain.on('set-system', (_e, patch) => {
-  const { login, followClaude, watchChat } = patch && typeof patch === 'object' ? patch : {};
-  updateSystem({ login, followClaude, watchChat }); // setupAsked is the app's own business
+  const { login, followClaude, watchChat, wsl, updateCheck } = patch && typeof patch === 'object' ? patch : {};
+  updateSystem({ login, followClaude, watchChat, wsl, updateCheck }); // setupAsked is the app's own business
 });
 ipcMain.on('hooks-action', (_e, action) => {
   if (action === 'install' || action === 'uninstall') changeHooks(action, settingsWin);
 });
+ipcMain.on('wsl-hooks-action', (_e, action) => {
+  if (action === 'install' || action === 'uninstall') changeWslHooks(action, settingsWin);
+});
 ipcMain.on('update-action', (_e, what) => updateAction(what));
+ipcMain.on('choose-version', (_e, version) => chooseVersion(String(version), settingsWin));
 ipcMain.on('snooze', (_e, minutes) => setSnooze(minutes));
 // right-click on the pet: the same minimal menu as the tray icon
 ipcMain.on('pet-menu', () => {
@@ -1278,7 +1474,7 @@ app.whenReady().then(async () => {
   }
 
   const poll = () => {
-    if (store.syncRegistry(readRegistry())) push();
+    if (store.syncRegistry([...readRegistry(), ...wslState.entries])) push();
     else if (store.takeActivity()) pushActivity();
   };
   poll();
@@ -1297,11 +1493,16 @@ app.whenReady().then(async () => {
     // which monitor the window the user works in is on (only asked while "follow" is on), and which Claude version runs (every few minutes)
     setInterval(followActiveMonitor, 1000);
     setInterval(pollClaude, 3000);
+    setInterval(pollClickThrough, 150);
+    setInterval(pollWsl, 5000);
+    pollWsl();
     setInterval(pollChats, 1500);
     pollChats(); // a watch that was on at the last quit starts at once
     if (caps().updates) {
-      setTimeout(() => updater.check(), 10_000);
-      setInterval(() => updater.check(), 6 * 3600_000);
+      // the automatic check is the one data transfer nobody asked for, so it can be switched off (Settings > System > Updates)
+      const autoCheck = () => { if (settings.system.updateCheck) updater.check({ auto: true }); };
+      setTimeout(autoCheck, 10_000);
+      setInterval(autoCheck, 6 * 3600_000);
     }
     setTimeout(() => firstRun().catch((err) => debugLog(`first run failed: ${err.message}`)), 2500);
     setTimeout(() => readClaudeVersion().catch(() => {}), 5000);

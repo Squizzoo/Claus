@@ -120,13 +120,20 @@ function shouldFollow({ monitor, activeDisplayId, currentDisplayId, candidateSin
  * Should the pet window ignore the mouse (clicks fall through to what is below it)? Only while click-through is on and
  * there is nothing to click: no chat needs you, the list is closed, the pet is not being dragged and the user is not holding Ctrl over it.
  */
-function clickThroughDecision({ enabled, attention, panelOpen, dragging, settingsOpen, grabbedAt = 0, now }) {
+function clickThroughDecision({ enabled, attention, panelOpen, dragging, settingsOpen, grabbedAt = 0, cursorInside = false, now }) {
   if (!enabled) return false;
   if (attention > 0 || panelOpen || dragging || settingsOpen) return false;
-  return !(grabbedAt && now - grabbedAt < GRAB_HOLD_MS);
+  // A grab (Ctrl over the pet, or a click on it) lasts GRAB_HOLD_MS, and as long as the cursor stays on the pet: a slow double-click must still land.
+  const grabbed = Boolean(grabbedAt) && (now - grabbedAt < GRAB_HOLD_MS || cursorInside);
+  return !grabbed;
+}
+
+/** Is the cursor on the pet window? (`bounds` = { x, y, width, height } in the same units as `cursor`.) */
+function cursorOver(cursor, bounds) {
+  return cursor.x >= bounds.x && cursor.x < bounds.x + bounds.width && cursor.y >= bounds.y && cursor.y < bounds.y + bounds.height;
 }
 
 module.exports = {
   DEFAULTS, SNAP, MONITOR, SNAP_THRESHOLD, FOLLOW_AFTER_MS, GRAB_HOLD_MS,
-  choices, sanitize, merge, clampTo, snapPosition, relativeOf, followTarget, resizeAnchor, shouldFollow, clickThroughDecision,
+  choices, sanitize, merge, clampTo, snapPosition, relativeOf, followTarget, resizeAnchor, shouldFollow, clickThroughDecision, cursorOver,
 };
