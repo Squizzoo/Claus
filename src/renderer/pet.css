@@ -6,6 +6,7 @@
 .tail { fill: none; stroke: var(--body); stroke-width: var(--tail-w, 10); stroke-linecap: round; transform-origin: var(--tail-origin, 112px 118px); }
 .inner { fill: var(--inner); }
 .dark { fill: var(--fur-dark); }
+.limb { fill: none; stroke: var(--fur-dark); stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; }
 .beak { fill: var(--nose); }
 .cheek { fill: var(--blush); opacity: .55; }
 .eyes { display: none; fill: var(--ink); stroke: none; }
@@ -37,6 +38,27 @@
 .act-yawn .mouth-calm { display: none; }
 .act-yawn .mouth-happy { display: block; fill: var(--ink); transform-box: fill-box; transform-origin: center top; animation: yawn 2s ease-in-out 1; }
 @keyframes yawn { 0%, 100% { transform: scale(0.5, 0.3); } 25%, 75% { transform: scale(1.25, 2.4); } }
+.act-hop .tilt { animation: hophop 0.62s ease-out 2; }
+@keyframes hophop { 0%, 100% { transform: none; } 40% { transform: translateY(-20px) scale(0.96, 1.06); } 75% { transform: translateY(0) scale(1.06, 0.94); } }
+.act-spin .tilt { transform-origin: 75px 92px; animation: spinaround 1.4s ease-in-out 1; } /* around the middle of the body, so it stays inside the window */
+@keyframes spinaround { to { transform: rotate(360deg); } }
+.act-spin .tail { animation: wag 0.2s ease-in-out infinite; }
+.act-dance .tilt { animation: dance 0.7s ease-in-out 4; }
+@keyframes dance { 0%, 100% { transform: rotate(-7deg) translateY(0); } 50% { transform: rotate(7deg) translateY(-6px); } }
+.act-dance .tail { animation: wag 0.25s ease-in-out infinite; }
+.act-dance .eyes-open, .act-wave .eyes-open, .act-poke .eyes-open { display: none; }
+.act-dance .eyes-happy, .act-wave .eyes-happy, .act-poke .eyes-happy { display: block; }
+.act-sneeze .tilt { animation: sneeze 1.5s ease-in-out 1; }
+@keyframes sneeze { 0%, 100% { transform: none; } 35% { transform: rotate(-7deg) scale(0.96, 1.05); } 55% { transform: translateY(5px) rotate(4deg) scale(1.07, 0.9); } 75% { transform: translateY(1px) scale(1.02, 0.98); } }
+.act-sneeze .eyes-open, .act-nap .eyes-open { display: none; }
+.act-sneeze .eyes-closed, .act-nap .eyes-closed { display: block; }
+.act-wave .tilt { animation: wave 1.9s ease-in-out 1; }
+@keyframes wave { 0%, 100% { transform: none; } 20%, 60% { transform: rotate(-4deg); } 40%, 80% { transform: rotate(4deg); } }
+.act-nap .tilt { animation: nap 5.2s ease-in-out 1; }
+@keyframes nap { 0%, 100% { transform: none; } 15%, 85% { transform: rotate(7deg) translateY(4px); } }
+/* a poke or click on the pet */
+.act-poke .tilt { animation: poke 0.35s ease-out 1; }
+@keyframes poke { 0% { transform: none; } 30% { transform: scale(1.1, 0.84) translateY(3px); } 65% { transform: scale(0.96, 1.07); } 100% { transform: none; } }
 
 /* mood memory (mood.js): a calm pet is sleepy late at night and perky in the morning. Only classes tod-*, never a mood-* class. */
 .tod-sleepy.mood-idle .bob { animation-duration: 6.5s; }
@@ -46,6 +68,17 @@
 .tod-perky.mood-idle .bob { animation-duration: 2.6s; }
 .tod-perky.mood-idle .tail { animation-duration: 2.4s; }
 .tod-perky.mood-idle .blink { animation-duration: 3.5s; }
+/* temperament (mood.js): playful and hyper are livelier, a working pet of those moves faster too (the doing-* rules further down win when both apply) */
+.tod-playful.mood-idle .bob { animation-duration: 2.2s; }
+.tod-playful.mood-idle .tail { animation-duration: 1.8s; }
+.tod-playful.mood-idle .blink { animation-duration: 3s; }
+.tod-hyper.mood-idle .bob { animation-duration: 1.3s; }
+.tod-hyper.mood-idle .tail { animation-duration: 0.9s; }
+.tod-hyper.mood-idle .blink { animation-duration: 2.4s; }
+.tod-playful.mood-working .bob { animation-duration: 0.7s; }
+.tod-playful.mood-working .tail { animation-duration: 0.4s; }
+.tod-hyper.mood-working .bob { animation-duration: 0.45s; }
+.tod-hyper.mood-working .tail { animation-duration: 0.25s; }
 
 /* sleeping: nobody is around */
 .mood-sleep .eyes-closed { display: block; }
@@ -85,6 +118,84 @@
 .angry .tilt { animation: none; }
 .angry .tail { animation: wag 0.25s ease-in-out infinite; }
 @keyframes rage { 0%, 100% { transform: translate(0, 0) rotate(0); } 25% { transform: translate(-2.5px, 0) rotate(-1.8deg); } 75% { transform: translate(2.5px, 0) rotate(1.8deg); } }
+
+/* ---------- what the chats are doing (the renderer adds doing-<activity>, busy and marathon to a working pet) ---------- */
+.doing-type.mood-working .bob { animation: typing 0.3s ease-in-out infinite; }
+.doing-run.mood-working .bob { animation: typing 0.4s ease-in-out infinite; }
+@keyframes typing { 50% { transform: translateY(-1.6px); } }
+.doing-type .eyes-open, .doing-run .eyes-open { transform: translateY(3px); } /* looking down at the screen */
+.doing-read .eyes-open { animation: scan 1.8s ease-in-out infinite; }
+@keyframes scan { 0%, 100% { transform: translate(-3px, 3px); } 50% { transform: translate(3px, 3px); } }
+.doing-read.mood-working .bob, .doing-think.mood-working .bob { animation: breathe 3s ease-in-out infinite; }
+.doing-think.mood-working .tilt { animation: tilt 2.2s ease-in-out infinite; }
+.doing-web.mood-working .tail { animation-duration: 0.3s; } /* the antenna perks up */
+.busy.mood-working .bob { animation-duration: 0.45s; }
+.busy.mood-working .tail { animation-duration: 0.22s; }
+.marathon.mood-working .bob { animation: breathe 4s ease-in-out infinite; } /* too tired to bounce */
+.marathon.mood-working .eyes-open { transform-box: view-box; transform-origin: var(--eye-origin, 75px 90px); transform: translateY(3px) scaleY(0.7); }
+
+/* mouse: the eyes follow the cursor (--look-x/--look-y, set by the renderer), a pet that is stroked for a moment purrs */
+.hover:not(.mood-approval):not(.angry) .eyes-open { translate: calc(var(--look-x, 0) * 1px) calc(var(--look-y, 0) * 1px); }
+.hover.mood-sleep .eyes-closed { display: none; }
+.hover.mood-sleep .eyes-open { display: block; transform-box: view-box; transform-origin: var(--eye-origin, 75px 90px); transform: scaleY(0.45); }
+.hover-happy:is(.mood-idle, .mood-working, .mood-done, .mood-sleep):not(.angry) .eyes-open,
+.hover-happy:is(.mood-idle, .mood-working, .mood-done, .mood-sleep):not(.angry) .eyes-closed { display: none; }
+.hover-happy:is(.mood-idle, .mood-working, .mood-done, .mood-sleep):not(.angry) .eyes-happy { display: block; }
+.hover-happy:is(.mood-idle, .mood-working, .mood-done, .mood-sleep):not(.angry) .mouth-calm { display: none; }
+.hover-happy:is(.mood-idle, .mood-working, .mood-done, .mood-sleep):not(.angry) .mouth-happy { display: block; }
+.hover-happy:is(.mood-idle, .mood-working, .mood-done, .mood-sleep):not(.angry) .tilt { animation: purr 0.22s ease-in-out infinite; }
+.hover-happy:is(.mood-idle, .mood-working):not(.angry) .tail { animation-duration: 0.35s; }
+@keyframes purr { 50% { transform: translateX(0.8px) rotate(0.6deg); } }
+
+/* ---------- props (props.js): hidden until a class on the pet root asks for them ---------- */
+.props { pointer-events: none; }
+.prop { display: none; }
+.doing-type .prop-laptop, .doing-read .prop-book, .doing-web .prop-globe, .doing-run .prop-terminal, .doing-think .prop-thought,
+.busy .prop-sweat, .marathon .prop-coffee, .act-nap .prop-zzz, .act-dance .prop-notes, .act-sneeze .prop-puff,
+.hover-happy .prop-heart, .act-wave .prop-hand { display: block; }
+.paw { fill: var(--fur); stroke: var(--fur-dark); stroke-width: 1.2; }
+.doing-type .paw-l, .doing-run .paw-l { animation: tap 0.28s ease-in-out infinite; }
+.doing-type .paw-r, .doing-run .paw-r { animation: tap 0.28s ease-in-out -0.14s infinite; }
+@keyframes tap { 50% { transform: translateY(2.5px); } }
+.lid { fill: #c6ccd6; stroke: #8f97a6; stroke-width: 1.5; }
+.lid-edge { fill: #aab2bf; }
+.logo { fill: #fff; opacity: 0.9; animation: logo 1.6s ease-in-out infinite; }
+@keyframes logo { 50% { opacity: 0.35; } }
+.page { fill: #fbf6e8; stroke: #c9bfa4; stroke-width: 1.2; }
+.page-line { fill: none; stroke: #b9ae92; stroke-width: 1.4; stroke-linecap: round; }
+.term { fill: #1d2430; stroke: #4a5568; stroke-width: 1.2; }
+.term-bar { fill: #323c4d; }
+.term-text { fill: #7df5c8; font-family: Consolas, monospace; font-weight: bold; }
+.caret { fill: #7df5c8; animation: caret 1s steps(1) infinite; }
+@keyframes caret { 50% { opacity: 0; } }
+.globe { fill: #4d9be6; stroke: #2a6fb8; stroke-width: 1.4; }
+.globe-line { fill: none; stroke: #bfe3ff; stroke-width: 1.2; }
+.float { animation: floaty 1.8s ease-in-out infinite; }
+@keyframes floaty { 50% { transform: translateY(-5px) rotate(8deg); } }
+.thought { fill: #fff; stroke: #aeb6c4; stroke-width: 1.2; }
+.think-dot { fill: #8a93a6; animation: thinkdot 1.2s ease-in-out infinite; }
+.think-dot.d2 { animation-delay: 0.2s; } .think-dot.d3 { animation-delay: 0.4s; }
+@keyframes thinkdot { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+.sweat { fill: #8fd3ff; stroke: #4aa8e0; stroke-width: 1; animation: drip 1.4s ease-in infinite; }
+@keyframes drip { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(12px); opacity: 0; } }
+.cup { fill: #fff; stroke: #b9b2a6; stroke-width: 1.4; }
+.cup-handle { fill: none; stroke: #b9b2a6; stroke-width: 2.4; stroke-linecap: round; }
+.steam { fill: none; stroke: #cfd8e6; stroke-width: 2; stroke-linecap: round; animation: steam 1.6s ease-in-out infinite; }
+.steam.s2 { animation-delay: 0.6s; }
+@keyframes steam { 0% { opacity: 0; transform: translateY(2px); } 50% { opacity: 0.9; } 100% { opacity: 0; transform: translateY(-5px); } }
+.z { fill: #7a8aa8; font-weight: bold; font-family: system-ui, sans-serif; animation: zfloat 2.4s ease-in-out infinite; }
+.z.z2 { animation-delay: 0.5s; } .z.z3 { animation-delay: 1s; }
+@keyframes zfloat { 0% { opacity: 0; transform: translate(0, 4px); } 30%, 70% { opacity: 1; } 100% { opacity: 0; transform: translate(4px, -8px); } }
+.note { fill: #7a5cd6; font-family: system-ui, sans-serif; transform-box: fill-box; transform-origin: center; animation: notefloat 0.7s ease-in-out infinite alternate; }
+.note.n2 { animation-delay: 0.3s; }
+@keyframes notefloat { from { transform: translateY(0) rotate(-8deg); } to { transform: translateY(-8px) rotate(8deg); } }
+.puff { fill: #fff; stroke: #cfd6e2; stroke-width: 1; opacity: 0; transform-box: fill-box; transform-origin: center; }
+.act-sneeze .puff { animation: puff 1.5s ease-out 1; }
+@keyframes puff { 0%, 45% { opacity: 0; transform: scale(0.3); } 60% { opacity: 1; } 100% { opacity: 0; transform: translate(10px, -2px) scale(1.4); } }
+.heart { fill: #ff6f91; animation: heart 1.4s ease-out infinite; }
+@keyframes heart { 0% { opacity: 0; transform: translateY(6px) scale(0.6); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateY(-14px) scale(1.1); } }
+.hand { transform-box: fill-box; transform-origin: 50% 100%; animation: handwave 0.45s ease-in-out 4; }
+@keyframes handwave { 0%, 100% { transform: rotate(-18deg); } 50% { transform: rotate(18deg); } }
 
 /* a picture of the pet that does not move (gallery cards) */
 .still, .still * { animation: none !important; }

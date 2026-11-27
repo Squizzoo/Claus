@@ -55,3 +55,40 @@ test('a preferred idle action is more likely, and a pet without a tail never wag
   assert.ok(sleepy.yawn > plain.yawn && sleepy.stretch > plain.stretch);
   assert.equal(count(Mood.PREFER.perky, false).wag, undefined);
 });
+
+test('temperament: sleepy, playful and hyper win over the clock, calm follows it', () => {
+  const o = (temper, tod = true) => ({ temper, tod });
+  assert.deepEqual(Mood.TEMPER_ORDER, ['sleepy', 'calm', 'playful', 'hyper']);
+  assert.equal(Mood.DEFAULT_TEMPER, 'calm');
+  for (const h of [2, 8, 14]) {
+    assert.equal(Mood.look(at(h), 'idle', o('sleepy')), 'sleepy', `sleepy ${h}h`);
+    assert.equal(Mood.look(at(h), 'idle', o('playful')), 'playful', `playful ${h}h`);
+    assert.equal(Mood.look(at(h), 'idle', o('hyper')), 'hyper', `hyper ${h}h`);
+  }
+  assert.equal(Mood.look(at(2), 'idle', o('calm')), 'sleepy'); // calm follows the clock...
+  assert.equal(Mood.look(at(2), 'idle', o('calm', false)), 'normal'); // ...unless the clock is off
+  assert.equal(Mood.look(at(2), 'idle', o('sleepy', false)), 'sleepy'); // the explicit choice does not need the clock switch
+  assert.equal(Mood.look(at(14), 'idle'), 'normal'); // default options = calm with the clock on
+});
+
+test('temperament only touches a calm pet, and a working one when it is playful or hyper', () => {
+  for (const mood of ['done', 'question', 'approval', 'sleep']) {
+    for (const temper of Mood.TEMPER_ORDER) assert.equal(Mood.look(at(2), mood, { temper }), 'normal', `${mood}/${temper}`);
+  }
+  assert.equal(Mood.look(at(2), 'working', { temper: 'hyper' }), 'hyper');
+  assert.equal(Mood.look(at(2), 'working', { temper: 'playful' }), 'playful');
+  assert.equal(Mood.look(at(2), 'working', { temper: 'sleepy' }), 'normal'); // a working chat is never slowed down
+  assert.equal(Mood.lookClass(at(2), 'idle', { temper: 'hyper' }), 'tod-hyper');
+  assert.equal(Mood.lookClass(at(14), 'idle'), '');
+  assert.equal(Mood.temperOf('hyper'), 'hyper');
+  assert.equal(Mood.temperOf('nope'), 'calm');
+});
+
+test('every look has timing and preferred actions, and the preferred actions exist', () => {
+  for (const key of ['sleepy', 'perky', 'normal', 'playful', 'hyper']) {
+    assert.equal(typeof Mood.GAP_FACTOR[key], 'number', key);
+    for (const name of Mood.PREFER[key]) assert.ok(Pets.IDLE_ACTIONS[name], `${key} prefers unknown action ${name}`);
+  }
+  assert.ok(Mood.GAP_FACTOR.hyper < Mood.GAP_FACTOR.playful && Mood.GAP_FACTOR.playful < Mood.GAP_FACTOR.normal && Mood.GAP_FACTOR.normal < Mood.GAP_FACTOR.sleepy);
+  for (const id of Mood.TEMPER_ORDER) assert.ok(Mood.TEMPERS[id].label && Mood.TEMPERS[id].hint, id);
+});

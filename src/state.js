@@ -62,6 +62,22 @@ function nextState(payload, current) {
   }
 }
 
+// What a working chat is doing, as a coarse category the pet can act out. Only the category is kept, never the tool name.
+const ACTIVITY_BY_TOOL = {
+  Edit: 'type', Write: 'type', MultiEdit: 'type', NotebookEdit: 'type',
+  Read: 'read', Grep: 'read', Glob: 'read', LS: 'read', ToolSearch: 'read',
+  WebSearch: 'web', WebFetch: 'web',
+  Bash: 'run', PowerShell: 'run', Monitor: 'run', BashOutput: 'run',
+  Agent: 'think', Task: 'think', Skill: 'think', Workflow: 'think', TodoWrite: 'think', ExitPlanMode: 'think',
+};
+const ACTIVITIES = ['type', 'read', 'web', 'run', 'think', 'work'];
+const MARATHON_MS = 15 * 60_000; // one turn that runs this long makes the pet tired (a coffee)
+
+/** 'type' | 'read' | 'web' | 'run' | 'think' | 'work' for a tool name; anything unknown (MCP tools, new tools) is 'work'. */
+function activityOf(tool) {
+  return typeof tool === 'string' && Object.prototype.hasOwnProperty.call(ACTIVITY_BY_TOOL, tool) ? ACTIVITY_BY_TOOL[tool] : 'work';
+}
+
 function basename(p) {
   if (!p) return '';
   const parts = String(p).split(/[\\/]+/).filter(Boolean);
@@ -171,6 +187,8 @@ class SessionStore {
         childHosts: new Set(), // Desktop ids of the chats this chat started (read from its transcript, see children.js)
         lastTurnMs: 0, // how long the last finished turn took
         doneAt: 0, // when the chat last finished
+        doing: '', // what it is doing right now (activityOf of its latest tool), '' unless working
+        askedDoing: '', // the activity of the tool that is waiting for your approval
       };
       this.sessions.set(id, s);
     }
@@ -200,6 +218,7 @@ class SessionStore {
       this.times.work.push(Math.max(0, now - s.turnStart - s.turnWaitMs));
     }
     s.state = state;
+    if (state !== 'working') s.doing = '';
     if (state === 'working' && (before === 'idle' || before === 'done' || !s.turnStart)) {
       s.turnStart = now;
       s.turnWaitMs = 0;
@@ -228,7 +247,22 @@ class SessionStore {
     s.lastHookAt = this.now();
     if (payload.cwd && !s.cwd) s.cwd = String(payload.cwd);
     if (!s.name) s.name = basename(s.cwd);
-    const changed = this._set(s, next) || !existing;
+    let changed = this._set(s, next) || !existing;
+    // what the chat is doing: set when a tool starts or a prompt is sent (thinking), kept while its result comes back
+    if (next === 'working' && (payload.hook_event_name === 'PreToolUse' || payload.hook_event_name === 'UserPromptSubmit')) {
+      const doing = payload.hook_event_name === 'PreToolUse' ? activityOf(payload.tool_name) : 'think';
+      if (doing !== s.doing) {
+        s.doing = doing;
+        changed = true;
+      }
+    }
+    // a tool that waited for your approval starts the moment you allow it: its PostToolUse comes back as 'working' with no PreToolUse in between
+    if (next === 'approval') s.askedDoing = activityOf(payload.tool_name);
+    else if (next === 'working' && !s.doing && s.askedDoing) {
+      s.doing = s.askedDoing;
+      s.askedDoing = '';
+      changed = true;
+    }
     if (!changed) this.activity = true;
     return changed;
   }
@@ -546,9 +580,31 @@ class SessionStore {
       }
       if (this._isOverdue(s)) overdue = true;
     }
+    // what the busy chats are doing: the newest hook decides the activity; the oldest running turn decides whether the pet is tired
+    let doing = '';
+    let busy = 0;
+    let workingSince = 0;
+    let newest = -1;
+    for (const s of list) {
+      if (s.state !== 'working' || this._isMuted(s)) continue;
+      busy++;
+      if (s.turnStart && (!workingSince || s.turnStart < workingSince)) workingSince = s.turnStart;
+      if (s.lastHookAt > newest) {
+        newest = s.lastHookAt;
+        doing = s.doing;
+      }
+    }
+    if (mood !== 'working') {
+      doing = '';
+      busy = 0;
+      workingSince = 0;
+    }
     const undoable = this._undoable();
     return {
       mood,
+      doing,
+      busy,
+      workingSince,
       attention,
       overdue,
       types,
@@ -600,4 +656,4 @@ class SessionStore {
   }
 }
 
-module.exports = { SessionStore, nextState, PRIORITY, ATTENTION, SESSION_ID, DEFAULT_IMPATIENT_MS, UNDO_MS, VIEW_REPORTS, basename, projectKey };
+module.exports = { SessionStore, nextState, activityOf, ACTIVITIES, MARATHON_MS, PRIORITY, ATTENTION, SESSION_ID, DEFAULT_IMPATIENT_MS, UNDO_MS, VIEW_REPORTS, basename, projectKey };

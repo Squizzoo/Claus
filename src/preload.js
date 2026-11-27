@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('pet', {
   onState: (cb) => ipcRenderer.on('state', (_e, s) => cb(s)),
   onAlert: (cb) => ipcRenderer.on('alert', (_e, a) => cb(a)),
   onCelebrate: (cb) => ipcRenderer.on('celebrate', (_e, c) => cb(c)),
+  onHover: (cb) => ipcRenderer.on('hover', (_e, over) => cb(Boolean(over))),
   togglePanel: (wantedHeight) => ipcRenderer.send('toggle-panel', wantedHeight),
   panelHeight: (h) => ipcRenderer.send('panel-height', h),
   collapse: () => ipcRenderer.send('collapse'),

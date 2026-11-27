@@ -97,12 +97,24 @@ test('holding Ctrl over the pet switches click-through off for a moment', () => 
   assert.equal(P.clickThroughDecision({ ...base, grabbedAt: 10_000 - P.GRAB_HOLD_MS - 1 }), true);
 });
 
-test('a grab lasts while the cursor stays on the pet, so a slow double-click lands', () => {
+test('a grab ends GRAB_HOLD_MS after its last signal, even while the cursor rests on the pet', () => {
   const base = { enabled: true, attention: 0, panelOpen: false, dragging: false, settingsOpen: false, now: 60_000 };
   const old = 60_000 - P.GRAB_HOLD_MS - 1;
-  assert.equal(P.clickThroughDecision({ ...base, grabbedAt: old, cursorInside: true }), false); // still on the pet: stays clickable
-  assert.equal(P.clickThroughDecision({ ...base, grabbedAt: old, cursorInside: false }), true); // left it: click-through again
+  // resting the cursor on the pet must not keep it grabbed without Ctrl (the old behaviour made the pet movable "all the time")
+  assert.equal(P.clickThroughDecision({ ...base, grabbedAt: old, cursorInside: true }), true);
+  assert.equal(P.clickThroughDecision({ ...base, grabbedAt: 60_000 - P.GRAB_HOLD_MS + 1 }), false); // a slow double-click still lands
   assert.equal(P.clickThroughDecision({ ...base, grabbedAt: 0, cursorInside: true }), true); // just hovering, never grabbed
+});
+
+test('clickThroughReason names why the pet window takes the mouse', () => {
+  const base = { enabled: true, attention: 0, panelOpen: false, dragging: false, settingsOpen: false, grabbedAt: 0, now: 10_000 };
+  assert.equal(P.clickThroughReason(base), 'on');
+  assert.equal(P.clickThroughReason({ ...base, enabled: false }), 'disabled');
+  assert.equal(P.clickThroughReason({ ...base, attention: 2 }), 'attention');
+  assert.equal(P.clickThroughReason({ ...base, panelOpen: true }), 'panel');
+  assert.equal(P.clickThroughReason({ ...base, dragging: true }), 'drag');
+  assert.equal(P.clickThroughReason({ ...base, settingsOpen: true }), 'settings');
+  assert.equal(P.clickThroughReason({ ...base, grabbedAt: 9_900 }), 'grab');
 });
 
 test('cursorOver is true only inside the window rectangle', () => {

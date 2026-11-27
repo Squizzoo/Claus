@@ -24,6 +24,7 @@ const hooksLib = require('./hooks-install');
 const updaterLib = require('./updater');
 const releasesLib = require('./releases');
 const { createClaudeWatcher } = require('./claude-running');
+const { createCtrlWatcher } = require('./ctrl-watch');
 const wslLib = require('./wsl');
 const { createChatWatcher } = require('./chat-watch');
 const { showToast } = require('./toast');
@@ -165,6 +166,7 @@ const petOpacity = () => settings.look.opacity / 100;
 /** Always on top. `screen-saver` is the level that also stays above fullscreen apps (not above exclusive-fullscreen games). */
 function raise(w) {
   if (w && !w.isDestroyed()) w.setAlwaysOnTop(true, settings.place.fullscreen ? 'screen-saver' : 'floating');
+  if (w === win) forgetClickThrough();
 }
 function makeWindow(role, bounds, extra) {
   const w = new BrowserWindow({
@@ -186,6 +188,7 @@ function makeWindow(role, bounds, extra) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false, // a pet that sat untouched for a minute must answer its first Ctrl-click at once
     },
     ...extra,
   });
@@ -460,52 +463,76 @@ function hidePet() {
 
 // ---------- click-through ----------
 // While nothing needs you the pet window lets clicks fall through to what is below it. Holding Ctrl over the pet grabs it.
-// Ctrl is read from the real keyboard state (the helper's `c` question): the mouse moves that a click-through window still gets do not carry the Ctrl flag.
-// A grab lasts while the cursor stays on the pet and a moment after, so a slow click or a double-click always lands.
-let clickThrough = false;
+// Ctrl is read from the real keyboard state: the mouse moves that a click-through window still gets do not carry the Ctrl flag.
+// The Ctrl state is streamed by ctrl-watch.ps1 (its own helper, started only while click-through is on). A grab lasts GRAB_HOLD_MS after its last signal
+// (Ctrl seen with the cursor on the pet, or a press or release on it) and no longer: resting the cursor on the pet never keeps it grabbed.
+// `clickThrough` is a cache of what the window was last told; null = unknown. Windows can drop the ignore-mouse style when a window is shown, raised or
+// resized, so the cache is forgotten there and the 1 s tick applies the wanted state again (a stale "on" would otherwise leave the pet draggable for good).
+let clickThrough = null;
 let grabbedAt = 0;
+let ctrlHeld = false;
+let lastClickReason = '';
 const cursorOnPet = () => placeLib.cursorOver(screen.getCursorScreenPoint(), petBounds());
-function updateClickThrough(snap) {
+function updateClickThrough(snap, reapply = false) {
   if (!win || win.isDestroyed()) return;
   const now = Date.now();
   const inside = cursorOnPet();
   if (grabbedAt && !inside && now - grabbedAt >= placeLib.GRAB_HOLD_MS) grabbedAt = 0; // the grab is over
-  const want = placeLib.clickThroughDecision({
+  const reason = placeLib.clickThroughReason({
     enabled: settings.place.clickThrough && petShown,
     attention: snap.attention,
     panelOpen: panelH > 0,
     dragging: Boolean(drag),
     settingsOpen: Boolean(settingsWin && !settingsWin.isDestroyed()),
     grabbedAt,
-    cursorInside: inside,
     now,
   });
-  if (want === clickThrough) return;
+  const want = reason === 'on';
+  if (reason !== lastClickReason) {
+    lastClickReason = reason;
+    debugLog(`click-through ${want ? 'on' : `off (${reason})`}`);
+  }
+  if (want === clickThrough && !reapply) return;
   clickThrough = want;
-  debugLog(`click-through ${want ? 'on' : 'off'}`);
   win.setIgnoreMouseEvents(want, want ? { forward: true } : undefined);
 }
+const forgetClickThrough = () => { clickThrough = null; };
 function grab() {
   grabbedAt = Date.now();
   updateClickThrough(store.snapshot());
 }
 ipcMain.on('pet-grab', grab);
-let askingCtrl = false;
-/** Every 150 ms while click-through is on: is Ctrl held with the cursor on the pet? Then the pet becomes clickable. */
-async function pollClickThrough() {
+const ctrlWatcher = createCtrlWatcher({
+  log: debugLog,
+  onChange: (held) => {
+    ctrlHeld = held;
+    if (held && settings.place.clickThrough && petShown && cursorOnPet()) grab();
+    else updateClickThrough(store.snapshot());
+  },
+});
+/** Every 150 ms while the cursor is on the pet or a grab runs: Ctrl held over the pet keeps the grab alive; a grab ends once the cursor has left. */
+function pollClickThrough() {
   if (!settings.place.clickThrough || !petShown) return;
   const onPet = cursorOnPet();
   if (!onPet && !grabbedAt) return; // nothing to decide while the cursor is elsewhere (the 1 s tick keeps the rest right)
-  updateClickThrough(store.snapshot()); // ends a grab as soon as the cursor has left
-  if (!clickThrough || askingCtrl || !onPet) return;
-  askingCtrl = true;
-  try {
-    if (await claudeWatcher().ctrl()) grab();
-  } catch {
-    /* no answer: the renderer's own Ctrl check still works */
-  } finally {
-    askingCtrl = false;
-  }
+  if (ctrlHeld && onPet) grabbedAt = Date.now();
+  updateClickThrough(store.snapshot());
+}
+/** Tells the pet page when the cursor enters or leaves it: a click-through window does not always get a mouse-leave of its own. */
+let lastHover = false;
+function pollHover() {
+  if (!win || win.isDestroyed() || !petShown || SHOT_RUN) return;
+  const over = cursorOnPet();
+  if (over === lastHover) return;
+  lastHover = over;
+  win.webContents.send('hover', over);
+}
+/** Once a second: the Ctrl helper runs only while click-through is on and the pet is shown (a dead one is restarted), and the window is told its state again. */
+function tickClickThrough() {
+  const on = Boolean(settings.place.clickThrough && petShown) && !SHOT_RUN;
+  ctrlWatcher.setWanted(on);
+  if (!on) ctrlHeld = false;
+  updateClickThrough(store.snapshot(), Boolean(settings.place.clickThrough)); // only a feature that is on needs the window told again
 }
 
 /** Called after every push and once a second (the grace before hiding runs on time, not on events). */
@@ -858,9 +885,8 @@ async function pollChats() {
   }
 }
 
-// The GitHub repository the releases live in (from the build settings in package.json).
-const publishCfg = (require('../package.json').build || {}).publish;
-const releaseRepo = Array.isArray(publishCfg) && publishCfg[0] && publishCfg[0].provider === 'github' ? { owner: publishCfg[0].owner, repo: publishCfg[0].repo } : null;
+// The GitHub repository the releases live in. The installed app has no build section in its package.json, so this reads the homepage too.
+const releaseRepo = releasesLib.repoFromPackage(require('../package.json'));
 const updater = updaterLib.createUpdater({
   repo: releaseRepo,
   supported: app.isPackaged && !IS_PORTABLE && !SHOT_RUN,
@@ -1333,6 +1359,7 @@ function resizePet(oldPx) {
   settings.x = petPos.x;
   settings.y = petPos.y;
   applyBounds();
+  forgetClickThrough();
 }
 /** Mute and the patience live outside settings.look; only known keys with valid values are applied. */
 function applyBehaviour(patch) {
@@ -1510,6 +1537,8 @@ app.whenReady().then(async () => {
     setInterval(followActiveMonitor, 1000);
     setInterval(pollClaude, 3000);
     setInterval(pollClickThrough, 150);
+    setInterval(tickClickThrough, 1000);
+    setInterval(pollHover, 200);
     setInterval(pollWsl, 5000);
     pollWsl();
     setInterval(pollChats, 1500);
@@ -1587,6 +1616,7 @@ app.on('second-instance', () => showPet(false, 30_000));
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => {
   openChat.stop();
+  ctrlWatcher.stop();
   if (claudeWatcherInstance) claudeWatcherInstance.stop();
   if (chatWatcherInstance) chatWatcherInstance.stop();
   if (server) server.close();

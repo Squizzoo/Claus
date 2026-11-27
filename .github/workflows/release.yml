@@ -32,9 +32,9 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -69,7 +69,7 @@ jobs:
 
       - name: Upload the unsigned files
         id: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unsigned-${{ steps.meta.outputs.version }}
           path: unsigned/*
@@ -82,9 +82,9 @@ jobs:
     if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4 # for .signpath/artifact-configuration.xml
+      - uses: actions/checkout@v7 # for .signpath/artifact-configuration.xml
       - name: Submit the signing request
-        uses: signpath/github-action-submit-signing-request@v1
+        uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -94,7 +94,7 @@ jobs:
           github-artifact-id: ${{ needs.build.outputs.artifact-id }}
           wait-for-completion: true
           output-artifact-directory: signed
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: signed-${{ needs.build.outputs.version }}
           path: signed/*
@@ -117,12 +117,12 @@ jobs:
       VERSION: ${{ needs.build.outputs.version }}
       SIGNED: ${{ needs.sign.result == 'success' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ needs.sign.result == 'success' && format('signed-{0}', needs.build.outputs.version) || format('unsigned-{0}', needs.build.outputs.version) }}
           path: release
@@ -135,7 +135,7 @@ jobs:
           (cd release && sha256sum Claus-* latest.yml > SHA256SUMS.txt && cat SHA256SUMS.txt)
 
       - name: Build provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             release/Claus-Setup-*.exe
