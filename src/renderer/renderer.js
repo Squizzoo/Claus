@@ -36,6 +36,7 @@
     counts: { done: 0, idle: 0 }, hiddenCount: 0, undoable: false, undoUntil: 0, undoCount: 0, prefs: DEFAULT_PREFS, expanded: false,
   };
   const tilt = document.getElementById('tilt');
+  const propsEl = document.getElementById('props');
   const veinPos = document.getElementById('vein-pos');
   let audio = null;
   let petId = null; // the pet currently drawn
@@ -293,6 +294,7 @@
     if (key !== lookKey) {
       lookKey = key;
       tilt.innerHTML = pet.markup;
+      propsEl.innerHTML = PetProps.markup(pet.anchors);
       const [dx, dy] = pet.anchors.vein;
       if (dx || dy) veinPos.setAttribute('transform', `translate(${dx} ${dy})`);
       else veinPos.removeAttribute('transform');
@@ -310,8 +312,37 @@
     idleAct = '';
   };
   // Mood memory: the time of day of a calm pet ('sleepy' | 'perky' | 'normal'). Screenshot runs (idleActions false) always get 'normal'.
-  const todOn = () => Boolean(last) && last.idleActions !== false && ROLE === 'pet' && !(last.look && last.look.mood === false);
-  const todNow = (mood = 'idle') => PetMood.effective(new Date(), mood, todOn());
+  const animOn = () => Boolean(last) && last.idleActions !== false && ROLE === 'pet';
+  const todOn = () => animOn() && !(last.look && last.look.mood === false);
+  const temperNow = () => PetMood.temperOf(last && last.look && last.look.temper);
+  // the look of a pet in this mood: 'sleepy' | 'perky' | 'normal' | 'playful' | 'hyper' (temperament first, the time of day only for a calm one)
+  // a temperament works even with "time of day" off, but never in screenshot runs (animOn)
+  const todNow = (mood = 'idle') => (animOn() ? PetMood.look(new Date(), mood, { tod: todOn(), temper: temperNow() }) : 'normal');
+
+  // What the working chats are doing (props.js): the prop of an activity stays up at least DOING_HOLD_MS, so a run of quick tools does not flicker.
+  const DOING_HOLD_MS = 2500;
+  let doingShown = '';
+  let doingSince = 0;
+  let doingTimer = null;
+  function settleDoing(want) {
+    window.clearTimeout(doingTimer);
+    const now = Date.now();
+    if (!want) {
+      doingShown = '';
+      return '';
+    }
+    if (doingShown && want !== doingShown && now - doingSince < DOING_HOLD_MS) {
+      doingTimer = window.setTimeout(() => { if (last) render(last); }, DOING_HOLD_MS - (now - doingSince));
+      return doingShown;
+    }
+    if (want !== doingShown) {
+      doingShown = want;
+      doingSince = now;
+    }
+    return doingShown;
+  }
+  // classes that the page itself adds and render() must not wipe when it rebuilds the class list
+  const STICKY = ['celebrating', 'hover', 'hover-happy', 'act-poke'];
   // the hour can change while the pet sits calm for a long time: look again once a minute
   if (ROLE === 'pet') window.setInterval(() => { if (last && !last.overdue) render(last); }, 60_000);
   function scheduleIdle() {
@@ -342,8 +373,23 @@
     // the pet window is petSize px wide; the 150 px art is scaled to fill it (size M adds no transform at all)
     const scale = (state.petSize || 150) / 150;
     root.style.setProperty('--pet-scale', String(scale));
-    const tod = state.overdue ? '' : PetMood.className(new Date(), mood, todOn());
-    root.className = `pet-host role-${ROLE} pet-${petId} side-${state.layout.side} ${state.layout.vertical} mood-${mood}${tod ? ' ' + tod : ''}${state.overdue ? ' angry' : ''}${idleAct ? ' ' + idleAct : ''}${root.classList.contains('celebrating') ? ' celebrating' : ''}${scale !== 1 ? ' scaled' : ''}`;
+    const look = state.overdue || !animOn() ? 'normal' : PetMood.look(new Date(), mood, { tod: todOn(), temper: temperNow() });
+    const working = mood === 'working' && !state.overdue && animOn();
+    const doing = settleDoing(working && PetProps.DOING.includes(state.doing) ? state.doing : '');
+    const busy = working && state.busy >= PetProps.BUSY_CHATS;
+    const marathon = working && state.workingSince > 0 && Date.now() - state.workingSince >= PetProps.MARATHON_MS;
+    const classes = [
+      'pet-host', `role-${ROLE}`, `pet-${petId}`, `side-${state.layout.side}`, state.layout.vertical, `mood-${mood}`,
+      look !== 'normal' && `tod-${look}`,
+      state.overdue && 'angry',
+      idleAct,
+      doing && `doing-${doing}`,
+      busy && 'busy',
+      marathon && 'marathon',
+      scale !== 1 && 'scaled',
+      ...STICKY.filter((c) => root.classList.contains(c)),
+    ];
+    root.className = classes.filter(Boolean).join(' ');
     const multi = renderChips(state);
     const text = state.overdue && !multi ? (mood === 'question' ? '?!' : '!!') : BUBBLE[mood] ?? '';
     bubbleText.textContent = text;
@@ -625,9 +671,43 @@
       lastGrab = Date.now();
       window.pet.petGrab();
     };
-    window.addEventListener('mousemove', (e) => { if (e.ctrlKey) grab(); });
+    // AltGr (Right Alt on many keyboards) reports ctrlKey and altKey together: that is not a Ctrl grab
+    window.addEventListener('mousemove', (e) => { if (e.ctrlKey && !e.altKey) grab(); });
     petEl.addEventListener('pointerdown', grab);
     petEl.addEventListener('pointerup', grab);
+
+    // The mouse: the eyes follow the cursor, a pet that is stroked for a moment purrs, a press is a poke. Main also tells the page when the cursor
+    // has left (a click-through window gets no mouse-leave of its own). The classes survive render(), see STICKY.
+    let happyTimer = 0;
+    let pokeTimer = 0;
+    const endHover = () => {
+      window.clearTimeout(happyTimer);
+      root.classList.remove('hover', 'hover-happy');
+      root.style.removeProperty('--look-x');
+      root.style.removeProperty('--look-y');
+    };
+    window.addEventListener('mousemove', (e) => {
+      if (!animOn()) return;
+      if (!root.classList.contains('hover')) {
+        root.classList.add('hover');
+        happyTimer = window.setTimeout(() => root.classList.add('hover-happy'), 700);
+      }
+      const r = petEl.getBoundingClientRect();
+      const dx = Math.max(-1, Math.min(1, (e.clientX - (r.left + r.width / 2)) / (r.width / 2)));
+      const dy = Math.max(-1, Math.min(1, (e.clientY - (r.top + r.height / 2)) / (r.height / 2)));
+      root.style.setProperty('--look-x', String(Math.round(dx * 40) / 10)); // up to 4 art pixels either way
+      root.style.setProperty('--look-y', String(Math.round(dy * 25) / 10));
+    });
+    document.documentElement.addEventListener('mouseleave', endHover);
+    window.pet.onHover((over) => { if (!over) endHover(); });
+    petEl.addEventListener('pointerdown', () => {
+      if (!animOn()) return;
+      window.clearTimeout(pokeTimer);
+      root.classList.remove('act-poke');
+      void root.getBoundingClientRect(); // restart the animation when poked twice in a row
+      root.classList.add('act-poke');
+      pokeTimer = window.setTimeout(() => root.classList.remove('act-poke'), 380);
+    });
   }
 
   window.pet.onState(render);

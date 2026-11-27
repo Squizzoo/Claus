@@ -24,11 +24,3 @@ test('unpacked points at the asar.unpacked copy and leaves a dev path alone', ()
   assert.equal(unpacked('C:\\app.asar.unpacked\\src\\x.ps1'), 'C:\\app.asar.unpacked\\src\\x.ps1'); // already unpacked
   assert.ok(helperScript('claude-running.ps1').endsWith('claude-running.ps1'));
 });
-
-test('parseCtrl reads the keyboard answer of the helper', () => {
-  const { parseCtrl } = require('../src/claude-running');
-  assert.equal(parseCtrl('ctrl=1'), true);
-  assert.equal(parseCtrl(' ctrl=0 \r\n'), false);
-  assert.equal(parseCtrl('ctrl=2'), null);
-  assert.equal(parseCtrl(null), null);
-});

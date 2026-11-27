@@ -346,8 +346,25 @@
       face: { cx: 75, eyeY: 90, eyeDx: 18, eyeR: 6.5, mouthY: 106, cheeks: { dx: 31, y: 102, rx: 8, ry: 5 } },
       anchors: { vein: [75, 36], top: [75, 46] },
     },
+    ant: {
+      // A three-quarter ant sitting up: an egg-shaped head with hooked mandibles, thin elbowed antennae, a small thorax, a pinched waist and a big striped gaster behind it,
+      // six jointed legs. Its own design; the face sits on the head (#body), which is a little left of the middle to make room for the gaster.
+      label: 'Ant',
+      colors: { body: '#b9553c', ink: '#2a1410', inner: '#e8a98a', blush: '#f2a08a', nose: '#2a1410' },
+      tail: { markup: '<g class="tail"><path d="M58 47 L52 25 L36 14"/><path d="M79 47 L85 25 L101 14"/></g>', origin: '68px 47px' },
+      back: '<path class="limb" d="M66 108 L38 99 L22 117"/><path class="limb" d="M64 114 L34 123 L24 141"/><path class="limb" d="M70 118 L48 133 L44 147"/>'
+        + '<path class="limb" d="M94 110 L122 96 L139 108"/><path class="limb" d="M98 118 L128 128 L137 144"/>'
+        + '<g transform="rotate(28 113 113)"><ellipse class="dark" cx="113" cy="113" rx="19" ry="25"/><ellipse class="fur" cx="113" cy="105" rx="15" ry="2.4"/><ellipse class="fur" cx="113" cy="119" rx="15.5" ry="2.4"/></g>'
+        + '<ellipse class="dark" cx="97" cy="111" rx="10" ry="7" transform="rotate(12 97 111)"/>'
+        + '<ellipse class="dark" cx="82" cy="108" rx="21" ry="13" transform="rotate(14 82 108)"/>',
+      body: '<path id="body" class="fur" d="M68 40 C93 40 105 56 101 73 C97 88 85 97 68 97 C51 97 39 88 35 73 C31 56 43 40 68 40 Z"/>',
+      front: '<path class="dark" d="M53 90 Q41 96 47 108 Q48 99 58 95 Z"/><path class="dark" d="M83 90 Q95 96 89 108 Q88 99 78 95 Z"/>',
+      face: { cx: 68, eyeY: 67, eyeDx: 14, eyeR: 6, mouthY: 83, cheeks: { dx: 25, y: 79, rx: 5.5, ry: 3.8 } },
+      vars: { '--tail-w': '3.5' },
+      anchors: { vein: [68, 32], top: [68, 42], lap: [72, 102] },
+    },
   };
-  const ORDER = ['cat', 'dog', 'bunny', 'bird', 'penguin', 'owl', 'dragon', 'sprout', 'blob', 'ghost', 'robot', 'critter', 'alien', 'car', 'sun', 'moon', 'cloud'];
+  const ORDER = ['cat', 'dog', 'bunny', 'bird', 'penguin', 'owl', 'dragon', 'sprout', 'blob', 'ghost', 'robot', 'critter', 'alien', 'car', 'sun', 'moon', 'cloud', 'ant'];
   const DEFAULT_PET = 'cat';
 
   /** The pet's colours under a skin: the body changes, the shades are worked out again from it. */
@@ -393,7 +410,9 @@
       ...(p.vars || {}),
     };
     // anchors.vein is stored as the centre of the mark; the renderer wants the offset from the cat's spot
-    const anchors = { top: p.anchors.top, vein: [p.anchors.vein[0] - 75, p.anchors.vein[1] - 38] };
+    // lap: the top edge of whatever the pet holds in front of it (laptop, book); just under the mouth unless the pet says otherwise
+    const lap = p.anchors.lap || [p.face.cx, Math.max(100, Math.min(118, p.face.mouthY + 9))];
+    const anchors = { top: p.anchors.top, vein: [p.anchors.vein[0] - 75, p.anchors.vein[1] - 38], lap, mouth: [p.face.cx, p.face.mouthY] };
     return { id: key, label: p.label, markup, vars, anchors, hasTail: Boolean(p.tail) };
   }
 
@@ -405,6 +424,12 @@
     yawn: { ms: 2000 },
     look: { ms: 1800 },
     wag: { ms: 1500, needsTail: true },
+    hop: { ms: 1300 },
+    spin: { ms: 1500, needsTail: true }, // chases its own tail
+    dance: { ms: 2800 },
+    sneeze: { ms: 1500 },
+    wave: { ms: 1900 },
+    nap: { ms: 5200 },
   };
   const IDLE_GAP = [8000, 20000]; // wait between two actions, in ms
 

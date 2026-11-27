@@ -3,6 +3,7 @@
 // Pure: validates whatever is loaded or sent so a bad value can never end up in the settings file.
 const PetArt = require('./renderer/pets');
 const PetSounds = require('./renderer/sounds');
+const PetMood = require('./renderer/mood');
 
 // Quiet hours: between `from` and `to` (hours, local time) the pet makes no sound. It still moves and shows chips.
 const QUIET = {
@@ -36,6 +37,7 @@ const DEFAULTS = {
   streak: true, // show "n finished today" in the list header
   showTokens: true, // show a chat's token count on its row
   mood: true, // mood memory: a calm pet is sleepy late at night and perky in the morning
+  temper: PetMood.DEFAULT_TEMPER, // how lively the pet is most of the time: sleepy | calm | playful | hyper
 };
 
 // Every setting is one value out of a fixed list.
@@ -53,6 +55,7 @@ function choices() {
     streak: [true, false],
     showTokens: [true, false],
     mood: [true, false],
+    temper: PetMood.TEMPER_ORDER,
   };
 }
 

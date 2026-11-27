@@ -120,12 +120,24 @@ function shouldFollow({ monitor, activeDisplayId, currentDisplayId, candidateSin
  * Should the pet window ignore the mouse (clicks fall through to what is below it)? Only while click-through is on and
  * there is nothing to click: no chat needs you, the list is closed, the pet is not being dragged and the user is not holding Ctrl over it.
  */
-function clickThroughDecision({ enabled, attention, panelOpen, dragging, settingsOpen, grabbedAt = 0, cursorInside = false, now }) {
-  if (!enabled) return false;
-  if (attention > 0 || panelOpen || dragging || settingsOpen) return false;
-  // A grab (Ctrl over the pet, or a click on it) lasts GRAB_HOLD_MS, and as long as the cursor stays on the pet: a slow double-click must still land.
-  const grabbed = Boolean(grabbedAt) && (now - grabbedAt < GRAB_HOLD_MS || cursorInside);
-  return !grabbed;
+function clickThroughDecision(args) {
+  return clickThroughReason(args) === 'on';
+}
+
+/**
+ * Why the pet window does or does not ignore the mouse: 'on' (it ignores it) or the reason it is clickable:
+ * 'disabled', 'attention', 'panel', 'drag', 'settings' or 'grab'. Used for the decision and for the debug log.
+ * A grab (Ctrl held over the pet, or a press or release on it) lasts GRAB_HOLD_MS after its last signal and no longer:
+ * resting the cursor on the pet must never keep it grabbed without Ctrl.
+ */
+function clickThroughReason({ enabled, attention, panelOpen, dragging, settingsOpen, grabbedAt = 0, now }) {
+  if (!enabled) return 'disabled';
+  if (attention > 0) return 'attention';
+  if (panelOpen) return 'panel';
+  if (dragging) return 'drag';
+  if (settingsOpen) return 'settings';
+  if (grabbedAt && now - grabbedAt < GRAB_HOLD_MS) return 'grab';
+  return 'on';
 }
 
 /** Is the cursor on the pet window? (`bounds` = { x, y, width, height } in the same units as `cursor`.) */
@@ -134,6 +146,6 @@ function cursorOver(cursor, bounds) {
 }
 
 module.exports = {
-  DEFAULTS, SNAP, MONITOR, SNAP_THRESHOLD, FOLLOW_AFTER_MS, GRAB_HOLD_MS,
+  DEFAULTS, SNAP, MONITOR, SNAP_THRESHOLD, FOLLOW_AFTER_MS, GRAB_HOLD_MS, clickThroughReason,
   choices, sanitize, merge, clampTo, snapPosition, relativeOf, followTarget, resizeAnchor, shouldFollow, clickThroughDecision, cursorOver,
 };

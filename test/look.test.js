@@ -171,3 +171,12 @@ test('setProjectLook at the limit drops the oldest project instead of losing the
   assert.equal(L.setProjectLook(m, 'p5', 'owl').p5.pet, 'owl'); // changing an existing one never evicts
   assert.ok(L.setProjectLook(m, 'p5', 'owl').fresh);
 });
+
+test('temper is one of the four temperaments and falls back to calm', () => {
+  const { sanitize, merge, DEFAULTS } = require('../src/look');
+  assert.equal(DEFAULTS.temper, 'calm');
+  for (const t of ['sleepy', 'calm', 'playful', 'hyper']) assert.equal(sanitize({ temper: t }).temper, t);
+  assert.equal(sanitize({ temper: 'wild' }).temper, 'calm');
+  assert.equal(merge({ ...DEFAULTS, temper: 'hyper' }, { temper: 'nope' }).temper, 'hyper'); // a bad patch keeps the current value
+  assert.equal(merge(DEFAULTS, { temper: 'playful' }).temper, 'playful');
+});
