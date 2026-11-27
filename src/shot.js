@@ -84,6 +84,26 @@ async function petSheets(win, prefix, { store, push, setLook }) {
     }
   }
   await sheet(`${prefix}-idle-acts.png`, actCells, Object.keys(PetArt.IDLE_ACTIONS).length);
+
+  // What the chats are doing: a working pet with the class of each activity on #root (the page never gets them from state in a shot run).
+  const PetProps = require('./renderer/props');
+  const rootJs = (code) => win.webContents.executeJavaScript(`(() => { const r = document.getElementById('root'); ${code} })()`);
+  const propCells = [];
+  store.sessions.clear();
+  store.applyHook({ session_id: 's-pet', cwd: 'C:\\p\\demo', hook_event_name: 'UserPromptSubmit' });
+  const moreProps = ['busy', 'marathon', 'hover hover-happy'];
+  for (const id of ['cat', 'dog', 'bird', 'robot', 'car', 'ghost', 'sun', 'cloud', 'ant']) {
+    setLook({ pet: id, skin: 'default', accessory: 'none' });
+    push();
+    await wait(320);
+    for (const cls of [...PetProps.DOING.map((d) => `doing-${d}`), ...moreProps]) {
+      await rootJs(`r.classList.add(...${JSON.stringify(cls.split(' '))});`);
+      await wait(260);
+      propCells.push({ png: (await win.webContents.capturePage()).toPNG(), label: `${id} · ${cls}` });
+      await rootJs(`r.classList.remove(...${JSON.stringify(cls.split(' '))});`);
+    }
+  }
+  await sheet(`${prefix}-props.png`, propCells, PetProps.DOING.length + moreProps.length);
   await stacheSheets(win, prefix, { store, push, setLook });
   setLook({ pet: 'cat', skin: 'default', accessory: 'none', mustache: 'none' });
 }

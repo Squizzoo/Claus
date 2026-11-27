@@ -45,6 +45,7 @@ function createHelper(script, { extraArgs = [], timeoutMs = 4000, idleMs = 60_00
     const mine = child;
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
+      if (child !== mine) return; // a late line of a helper that was killed must not answer the next question
       buffer += chunk;
       let i;
       while ((i = buffer.indexOf('\n')) >= 0) {

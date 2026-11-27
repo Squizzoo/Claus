@@ -221,6 +221,7 @@
     pick({ volume: v });
     window.pet.previewSound({ pack: st && st.look.pack, volume: v, kind: 'done' });
   });
+  const temperButtons = segmented($('temper'), PetMood.TEMPER_ORDER.map((id) => [id, PetMood.TEMPERS[id].label]), (id) => pick({ temper: id }));
   let quietButtons = [];
   let patienceButtons = [];
   let sizeButtons = [];
@@ -330,6 +331,10 @@
     $('streak').checked = look.streak;
     $('show-tokens').checked = look.showTokens;
     $('mood-memory').checked = look.mood;
+    const temper = PetMood.temperOf(look.temper);
+    setChecked(temperButtons, (b) => b.dataset.value === temper);
+    $('temper-hint').textContent = PetMood.TEMPERS[temper].hint;
+    $('mood-memory').disabled = temper !== 'calm'; // only a calm pet follows the clock
     renderProjectPets(st.projectPets || []);
     renderToday(st.daily);
 

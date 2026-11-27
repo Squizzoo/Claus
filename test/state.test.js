@@ -606,3 +606,59 @@ test('an interrupted turn counts its work up to the moment it went idle, not up 
   assert.equal(st.snapshot().mood, 'idle');
   assert.deepEqual(st.takeTimes().work, [10_000]);
 });
+
+test('activityOf gives a coarse category and never the tool name', () => {
+  const { activityOf, ACTIVITIES } = require('../src/state');
+  assert.equal(activityOf('Edit'), 'type');
+  assert.equal(activityOf('Grep'), 'read');
+  assert.equal(activityOf('WebSearch'), 'web');
+  assert.equal(activityOf('Bash'), 'run');
+  assert.equal(activityOf('Agent'), 'think');
+  for (const odd of ['mcp__x__secret_tool', 'constructor', '__proto__', '', undefined, null, 42]) assert.equal(activityOf(odd), 'work', String(odd));
+  for (const name of ['Edit', 'Read', 'Bash', 'mcp__x__y']) assert.ok(ACTIVITIES.includes(activityOf(name)));
+});
+
+test('the snapshot says what the busy chats are doing', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  const A = 'aaaaaaaa-1111-2222-3333-444444444444';
+  const B = 'bbbbbbbb-1111-2222-3333-444444444444';
+  const h = (id, name, extra) => ({ session_id: id, cwd: 'C:\\x\\proj' + id[0], hook_event_name: name, ...extra });
+  assert.deepEqual([st.snapshot().doing, st.snapshot().busy], ['', 0]);
+  st.applyHook(h(A, 'UserPromptSubmit'));
+  assert.equal(st.snapshot().doing, 'think'); // a prompt: Claude is thinking
+  c.advance(1000);
+  assert.ok(st.applyHook(h(A, 'PreToolUse', { tool_name: 'Edit' })), 'a new activity is a change');
+  assert.equal(st.snapshot().doing, 'type');
+  assert.equal(st.applyHook(h(A, 'PostToolUse', { tool_name: 'Edit' })), false);
+  assert.equal(st.snapshot().doing, 'type'); // the result coming back keeps it
+  c.advance(1000);
+  st.applyHook(h(B, 'PreToolUse', { tool_name: 'Read' }));
+  const s = st.snapshot();
+  assert.deepEqual([s.doing, s.busy], ['read', 2]); // the newest hook decides, both chats count
+  assert.ok(s.workingSince > 0 && s.workingSince <= c.now());
+  st.applyHook(h(B, 'Stop'));
+  assert.deepEqual([st.snapshot().doing, st.snapshot().mood], ['', 'done']); // a chat that needs you is not "doing" anything
+});
+
+test('muted chats do not count as busy', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('PreToolUse', { tool_name: 'Bash' }));
+  assert.equal(st.snapshot().busy, 1);
+  st.setMuted({ ids: [SID] });
+  const s = st.snapshot();
+  assert.deepEqual([s.busy, s.doing, s.mood], [0, '', 'idle']);
+});
+
+test('a tool you approved keeps its activity when it starts running', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  st.applyHook(hook('PermissionRequest', { tool_name: 'Bash' }));
+  assert.equal(st.snapshot().doing, ''); // waiting on you: not "doing" anything
+  st.applyHook(hook('PostToolUse', { tool_name: 'Bash' })); // you answered
+  assert.equal(st.snapshot().doing, 'run');
+  st.applyHook(hook('PostToolUse', { tool_name: 'Bash' }));
+  assert.equal(st.snapshot().doing, 'run');
+});

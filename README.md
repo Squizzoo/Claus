@@ -20,8 +20,7 @@
   <a href="https://github.com/Squizzoo/Claus/releases/latest"><b>Download</b></a> ·
   <a href="https://squizzoo.github.io/Claus/">Website</a> ·
   <a href="#install-it-the-packaged-app">Install</a> ·
-  <a href="#privacy">Privacy</a> ·
-  <a href="ROADMAP.md">Roadmap</a>
+  <a href="#privacy">Privacy</a>
 </p>
 
 <p align="center">
@@ -132,14 +131,21 @@ the *System* tab has the Claude Code hooks, start with Windows, following Claude
 the *Today* tab has the day's numbers. *Size* and *Opacity* are under *Appearance*. Everything is remembered.
 The right-click menu (on the tray icon or on the pet) is deliberately short, see below.
 
-- **Pet:** cat, dog, bunny, bird, penguin, owl, dragon, sprout, blob, ghost, robot, alien, car, sun, moon
-  or cloud. Every pet has art for every mood above (sleeping, calm, working, happy, question,
+- **Pet:** cat, dog, bunny, bird, penguin, owl, dragon, sprout, blob, ghost, robot, alien, car, sun, moon,
+  cloud or ant. Every pet has art for every mood above (sleeping, calm, working, happy, question,
   approval and angry); the speech bubble and chips are the same for all of them.
 - **Colour, accessory and mustache:** ten colours (the flushed and angry faces follow the colour you pick), a
   bow, top hat, crown or party hat, and a classic, handlebar or curly mustache. The mustache is a separate choice,
   so it goes with any hat. (The mustache is in the settings window only.)
-- **Idle animations:** a calm pet blinks and breathes, and every 8 to 20 seconds stretches, yawns, looks
-  around or wags its tail (or antenna, flipper, rays). A pet without a tail never wags.
+- **Idle animations:** a calm pet blinks and breathes, and every so often stretches, yawns, looks around, wags its tail (or
+  antenna, flipper, rays), hops, chases its tail, dances, sneezes, waves or takes a nap. A pet without a tail never wags or spins.
+- **Temperament** (Settings > Behaviour): *Sleepy*, *Calm* (the default), *Playful* or *Hyper*. It sets how often those idle actions
+  happen (every 8 to 20 seconds when calm, every 2 to 4 when hyper), which ones the pet prefers, and how fast it moves while a chat works.
+- **What the chats are doing:** while a chat works the pet acts it out with a small prop: typing behind a laptop (editing files),
+  reading a book (Read, Grep, Glob), a globe (web search and fetch), a terminal (commands) or a thought bubble (thinking, sub-agents).
+  With three or more chats working at once it sweats and goes faster, and after a turn of 15 minutes or more it needs a coffee.
+  Only a coarse category of the tool is used, never its name or content.
+- **Mouse:** the eyes follow the cursor, a pet that you hover over for a moment purrs and sends a heart, and a click gives it a poke.
 - **Celebration:** when three chats finish within a minute, confetti and sparkles burst over the pet and
   it hops, with a short fanfare (at most once a minute). Muted chats do not count towards it.
 - **Finished today:** the list header shows `✓ n today`, the number of chats that finished today
@@ -232,12 +238,13 @@ All of this is in the settings window (*Appearance* and *Window* tabs); *Reset p
 - **Click-through:** while no chat needs you (nothing finished, asking or waiting for approval, muted chats not counted)
   clicks go through the pet to the window below. Hold **Ctrl** and hover over the pet to grab it; the moment a chat needs you
   it is clickable again. A muted finished chat does not count as needing you: use the tray icon to open the list then.
-  Ctrl is read from the real keyboard state (a Windows API call in the PowerShell helper), and a grab lasts as long as the cursor
-  stays on the pet, so a slow click or a double-click always lands.
+  Ctrl is read from the real keyboard state (a small PowerShell helper that streams the key, ignoring AltGr), and a grab lasts
+  1.5 seconds after the last Ctrl press or click on the pet, so a slow click or a double-click lands but resting the cursor on the pet
+  never keeps it grabbed. Run with `CLAUDE_PET_LOG=1` to see why click-through turned off (`attention`, `grab`, `panel`, `drag`, `settings`).
 
 ## Time of day, pets per project, nested chats and WSL
 
-- **Time of day** (Settings > Behaviour): a calm pet is sleepy late at night (23:00 to 06:00: slower, half-closed eyes, yawns and
+- **Time of day** (Settings > Behaviour, for the *Calm* temperament only): a calm pet is sleepy late at night (23:00 to 06:00: slower, half-closed eyes, yawns and
   stretches) and perky in the morning (06:00 to 10:00). A chat that needs you always looks the way its state says. Switch it off there.
 - **Pet per project:** right-click a chat in the list and choose *Pet for this project*. While a chat of that project needs you
   (finished, asking or waiting for approval) the pet shows that character; otherwise your usual one. Size and accessories stay the same.

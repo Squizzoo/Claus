@@ -102,8 +102,13 @@
         <p class="hint">When a chat has been waiting on a question or an approval for this long, the pet turns angry.</p>
         <div id="patience" class="seg" role="radiogroup" aria-label="Gets angry after waiting"></div>
 
+        <h2>Temperament</h2>
+        <p class="hint">How lively the pet is most of the time: how often it stretches, hops, dances or naps while nothing needs you, and how fast it moves while a chat works. A chat that needs you always looks the way its state says.</p>
+        <div id="temper" class="seg" role="radiogroup" aria-label="Temperament"></div>
+        <p class="hint" id="temper-hint"></p>
+
         <h2>Time of day</h2>
-        <p class="hint">A calm pet is sleepy late at night (23:00 to 06:00) and perky in the morning (06:00 to 10:00). A chat that needs you always looks the way its state says.</p>
+        <p class="hint">A calm pet is sleepy late at night (23:00 to 06:00) and perky in the morning (06:00 to 10:00). This only applies to the <b>Calm</b> temperament; the others stay the way you chose.</p>
         <label class="switch"><input type="checkbox" id="mood-memory"><span class="track"></span><span class="label">Sleepy at night, perky in the morning</span></label>
 
         <h2>Pet per project</h2>
@@ -202,6 +207,7 @@
   </main>
 
   <script src="pets.js"></script>
+  <script src="mood.js"></script>
   <script src="sounds.js"></script>
   <script src="settings.js"></script>
 </body>
