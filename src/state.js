@@ -254,6 +254,7 @@ class SessionStore {
     const event = payload.hook_event_name;
     if (next === 'working' && (event === 'PreToolUse' || event === 'PostToolUse' || event === 'UserPromptSubmit') && !(event === 'PostToolUse' && payload.tool_name === 'AskUserQuestion')) {
       const doing = event === 'UserPromptSubmit' ? 'think' : activityOf(payload.tool_name);
+      s.askedDoing = ''; // a real activity: nothing older is waiting to come back
       if (doing !== s.doing) {
         s.doing = doing;
         changed = true;

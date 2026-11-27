@@ -390,7 +390,7 @@
     const doing = settleDoing(working && PetProps.DOING.includes(state.doing) ? state.doing : '');
     const busy = working && state.busy >= PetProps.BUSY_CHATS;
     const marathon = working && state.workingSince > 0 && Date.now() - state.workingSince >= PetProps.MARATHON_MS;
-    workNow = { doing: state.doing || '', busy, marathon };
+    workNow = { doing: doing || 'work', busy, marathon }; // the activity on screen, so a yawn never comes with the laptop of a moment ago
     syncIdle(mood === 'idle' && !state.overdue && state.idleActions !== false ? 'idle' : working ? 'working' : '');
     const classes = [
       'pet-host', `role-${ROLE}`, `pet-${petId}`, `side-${state.layout.side}`, state.layout.vertical, `mood-${mood}`,

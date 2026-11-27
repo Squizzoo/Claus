@@ -691,3 +691,15 @@ test('answering a question does not change what the chat was doing', () => {
   st.applyHook(hook('PostToolUse', { tool_name: 'AskUserQuestion' })); // you answered
   assert.deepEqual([st.snapshot().mood, st.snapshot().doing], ['working', 'type']);
 });
+
+test('an approval that already ran never brings its activity back after a later question', () => {
+  const c = clock();
+  const st = new SessionStore({ now: c.now });
+  st.applyHook(hook('UserPromptSubmit'));
+  st.applyHook(hook('PermissionRequest', { tool_name: 'Bash' }));
+  st.applyHook(hook('PostToolUse', { tool_name: 'Bash' })); // approved and ran
+  st.applyHook(hook('Stop'));
+  st.applyHook(hook('PreToolUse', { tool_name: 'AskUserQuestion' })); // a new turn that opens with a question
+  st.applyHook(hook('PostToolUse', { tool_name: 'AskUserQuestion' }));
+  assert.deepEqual([st.snapshot().mood, st.snapshot().doing], ['working', '']);
+});
