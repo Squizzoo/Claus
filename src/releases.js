@@ -6,6 +6,7 @@
 const SEMVER = /^v?(\d{1,4})\.(\d{1,4})\.(\d{1,4})$/;
 const SAFE_NAME = /^[A-Za-z0-9._-]{1,100}$/;
 const MAX_LIST = 30;
+const safeName = (name) => SAFE_NAME.test(String(name)) && !/^\.+$/.test(String(name)); // not '.' or '..'
 
 /** '1.2.3' or 'v1.2.3' -> { major, minor, patch }, anything else (including pre-releases) -> null. */
 function parseVersion(text) {
@@ -24,9 +25,21 @@ function compareVersions(a, b) {
 
 /** The folder of one release on GitHub that holds its latest.yml and installer; null for an unsafe owner, repo or version. */
 function feedUrl(owner, repo, version) {
-  if (!SAFE_NAME.test(String(owner)) || !SAFE_NAME.test(String(repo)) || !parseVersion(version)) return null;
+  if (!safeName(owner) || !safeName(repo) || !parseVersion(version)) return null;
   const v = parseVersion(version);
   return `https://github.com/${owner}/${repo}/releases/download/v${v.major}.${v.minor}.${v.patch}`;
+}
+
+/**
+ * The GitHub owner and repo the releases live in, from package.json: the build's publish settings in a source checkout, else `homepage`.
+ * The installed app has no `build` section (electron-builder leaves it out of the packaged package.json), but it keeps `homepage`.
+ */
+function repoFromPackage(pkg) {
+  const p = pkg && typeof pkg === 'object' ? pkg : {};
+  const pub = p.build && Array.isArray(p.build.publish) ? p.build.publish[0] : null;
+  if (pub && pub.provider === 'github' && safeName(pub.owner) && safeName(pub.repo)) return { owner: pub.owner, repo: pub.repo };
+  const m = /^https:\/\/github\.com\/([A-Za-z0-9._-]{1,100})\/([A-Za-z0-9._-]{1,100})\/?$/.exec(String(p.homepage || ''));
+  return m && safeName(m[1]) && safeName(m[2]) ? { owner: m[1], repo: m[2] } : null;
 }
 
 /**
@@ -52,4 +65,4 @@ function parseReleases(json, current) {
   return out.slice(0, MAX_LIST);
 }
 
-module.exports = { parseVersion, compareVersions, feedUrl, parseReleases, MAX_LIST };
+module.exports = { parseVersion, compareVersions, feedUrl, parseReleases, repoFromPackage, MAX_LIST };

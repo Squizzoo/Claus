@@ -858,9 +858,8 @@ async function pollChats() {
   }
 }
 
-// The GitHub repository the releases live in (from the build settings in package.json).
-const publishCfg = (require('../package.json').build || {}).publish;
-const releaseRepo = Array.isArray(publishCfg) && publishCfg[0] && publishCfg[0].provider === 'github' ? { owner: publishCfg[0].owner, repo: publishCfg[0].repo } : null;
+// The GitHub repository the releases live in. The installed app has no build section in its package.json, so this reads the homepage too.
+const releaseRepo = releasesLib.repoFromPackage(require('../package.json'));
 const updater = updaterLib.createUpdater({
   repo: releaseRepo,
   supported: app.isPackaged && !IS_PORTABLE && !SHOT_RUN,
