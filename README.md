@@ -142,7 +142,7 @@ The right-click menu (on the tray icon or on the pet) is deliberately short, see
 - **Temperament** (Settings > Behaviour): *Sleepy*, *Calm* (the default), *Playful* or *Hyper*. It sets how often those idle actions
   happen (every 8 to 20 seconds when calm, every 2 to 4 when hyper), which ones the pet prefers, and how fast it moves while a chat works.
 - **What the chats are doing:** while a chat works the pet acts it out with a small prop: typing behind a laptop (editing files),
-  reading a book (Read, Grep, Glob), a globe (web search and fetch), a terminal (commands) or a thought bubble (thinking, sub-agents).
+  reading a book (Read, Grep, Glob), a globe (web search and fetch), a terminal (commands) or a light bulb (thinking, sub-agents).
   With three or more chats working at once it sweats and goes faster, and after a turn of 15 minutes or more it needs a coffee.
   Only a coarse category of the tool is used, never its name or content.
 - **Mouse:** the eyes follow the cursor, a pet that you hover over for a moment purrs and sends a heart, and a click gives it a poke.
