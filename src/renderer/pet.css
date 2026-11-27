@@ -150,7 +150,7 @@
 /* ---------- props (props.js): hidden until a class on the pet root asks for them ---------- */
 .props { pointer-events: none; }
 .prop { display: none; }
-.doing-type .prop-laptop, .doing-read .prop-book, .doing-web .prop-globe, .doing-run .prop-terminal, .doing-think .prop-thought,
+.doing-type .prop-laptop, .doing-read .prop-book, .doing-web .prop-globe, .doing-run .prop-terminal, .doing-think .prop-bulb,
 .busy .prop-sweat, .marathon .prop-coffee, .act-nap .prop-zzz, .act-dance .prop-notes, .act-sneeze .prop-puff,
 .hover-happy .prop-heart, .act-wave .prop-hand { display: block; }
 .paw { fill: var(--fur); stroke: var(--fur-dark); stroke-width: 1.2; }
@@ -172,10 +172,12 @@
 .globe-line { fill: none; stroke: #bfe3ff; stroke-width: 1.2; }
 .float { animation: floaty 1.8s ease-in-out infinite; }
 @keyframes floaty { 50% { transform: translateY(-5px) rotate(8deg); } }
-.thought { fill: #fff; stroke: #aeb6c4; stroke-width: 1.2; }
-.think-dot { fill: #8a93a6; animation: thinkdot 1.2s ease-in-out infinite; }
-.think-dot.d2 { animation-delay: 0.2s; } .think-dot.d3 { animation-delay: 0.4s; }
-@keyframes thinkdot { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+.bulb-glass { fill: #ffe066; stroke: #d9a400; stroke-width: 1.4; }
+.bulb-fil { fill: none; stroke: #d9a400; stroke-width: 1.2; stroke-linejoin: round; }
+.bulb-base { fill: #aab2bf; stroke: #8f97a6; stroke-width: 1.1; }
+.bulb-ray { fill: none; stroke: #ffd23f; stroke-width: 2; stroke-linecap: round; }
+.bulb-glow { animation: glow 1.4s ease-in-out infinite; }
+@keyframes glow { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
 .sweat { fill: #8fd3ff; stroke: #4aa8e0; stroke-width: 1; animation: drip 1.4s ease-in infinite; }
 @keyframes drip { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(12px); opacity: 0; } }
 .cup { fill: #fff; stroke: #b9b2a6; stroke-width: 1.4; }
