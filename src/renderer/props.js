@@ -68,8 +68,8 @@
       + `<circle class="globe" r="11"/><ellipse class="globe-line" rx="4.5" ry="11"/><path class="globe-line" d="M-11 0 L11 0 M-9 -5.5 L9 -5.5 M-9 5.5 L9 5.5"/>`
       + `</g></g></g>`;
 
-    const bulb = `<g class="prop prop-bulb"><g transform="translate(${f(gx)} ${f(gy)}) scale(1.3)"><g class="bulb-glow">`
-      + `<path class="ray" d="M0 -19 L0 -14 M-15 -12 L-11 -9 M15 -12 L11 -9 M-19 0 L-14 0 M19 0 L14 0"/>`
+    const bulb = `<g class="prop prop-bulb"><g transform="translate(${f(Math.max(28, gx))} ${f(Math.max(32, gy))}) scale(1.3)"><g class="bulb-glow">`
+      + `<path class="bulb-ray" d="M0 -19 L0 -14 M-15 -12 L-11 -9 M15 -12 L11 -9 M-19 0 L-14 0 M19 0 L14 0"/>`
       + `<circle class="bulb-glass" r="9"/><path class="bulb-fil" d="M-3 6 L-3 0 L0 -3 L3 0 L3 6"/>`
       + `<rect class="bulb-base" x="-4.5" y="8" width="9" height="6" rx="2"/>`
       + `</g></g></g>`;
