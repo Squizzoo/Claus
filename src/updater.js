@@ -24,6 +24,8 @@ function reduce(state, event) {
       return { ...state, status: 'downloading', percent: clampPercent(event.percent) };
     case 'ready':
       return { ...state, status: 'ready', percent: 100, version: cleanVersion(event.version) || state.version };
+    case 'reset':
+      return state.status === 'downloading' ? state : { ...EMPTY };
     case 'error':
       // an error during a check goes back to what was known; an error while downloading is shown
       return { ...state, status: 'error', error: String(event.message || 'unknown error').slice(0, 200) };
@@ -100,6 +102,7 @@ function createUpdater({ supported, onChange, log = () => {}, repo = null, loadU
       if (!supported || !url) return Promise.resolve(state);
       return Promise.resolve().then(() => {
         const u = load();
+        set({ type: 'reset' }); // an update that is ready for another version must not hide the chosen one (the reducer ignores a new check then)
         u.allowDowngrade = true;
         u.setFeedURL({ provider: 'generic', url });
         pinned = true;

@@ -159,3 +159,15 @@ test('effectiveLook: only the newest chat that needs you can switch the pet', ()
   assert.equal(L.effectiveLook([], base, maps), base);
   assert.equal(L.effectiveLook(null, base, null), base);
 });
+
+test('setProjectLook at the limit drops the oldest project instead of losing the new one', () => {
+  const L = require('../src/look');
+  let m = {};
+  for (let i = 0; i < L.PROJECT_LOOK_MAX; i++) m = L.setProjectLook(m, `p${i}`, 'cat');
+  m = L.setProjectLook(m, 'fresh', 'dog');
+  assert.equal(Object.keys(m).length, L.PROJECT_LOOK_MAX);
+  assert.equal(m.fresh.pet, 'dog');
+  assert.equal(m.p0, undefined);
+  assert.equal(L.setProjectLook(m, 'p5', 'owl').p5.pet, 'owl'); // changing an existing one never evicts
+  assert.ok(L.setProjectLook(m, 'p5', 'owl').fresh);
+});

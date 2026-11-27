@@ -111,3 +111,17 @@ test('useVersion refuses versions that are not plain numbers, and does nothing w
   const off = U.createUpdater({ supported: false, onChange: () => {}, repo, loadUpdater: () => { throw new Error('must not load'); } });
   assert.equal((await off.useVersion('0.1.0')).status, 'unsupported');
 });
+
+test('choosing a version while another update is ready is not swallowed', async () => {
+  const au = fakeAutoUpdater();
+  const u = U.createUpdater({ supported: true, onChange: () => {}, repo, loadUpdater: () => au });
+  await u.check();
+  au.emit('update-available', { version: '0.3.0' });
+  au.emit('update-downloaded', { version: '0.3.0' });
+  assert.equal(u.state().status, 'ready');
+  await u.useVersion('0.1.0');
+  au.emit('update-available', { version: '0.1.0' });
+  assert.deepEqual([u.state().status, u.state().version], ['available', '0.1.0']);
+  // a download in progress is never reset
+  assert.equal(U.reduce({ ...U.EMPTY, status: 'downloading', percent: 5 }, { type: 'reset' }).status, 'downloading');
+});

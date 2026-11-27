@@ -31,7 +31,8 @@ function createChildren() {
         for (const b of content) {
           if (!b || typeof b !== 'object') continue;
           if (b.type === 'tool_use' && typeof b.name === 'string' && /start_session$/.test(b.name) && typeof b.id === 'string') {
-            if (pending.size < MAX_PENDING) pending.add(b.id);
+            if (pending.size >= MAX_PENDING) pending.delete(pending.values().next().value); // never stop watching because old calls got no answer
+            pending.add(b.id);
           } else if (b.type === 'tool_result' && pending.has(b.tool_use_id)) {
             pending.delete(b.tool_use_id);
             const body = typeof b.content === 'string' ? b.content : JSON.stringify(b.content);

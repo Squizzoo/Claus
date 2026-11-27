@@ -129,6 +129,7 @@ function setProjectLook(map, project, pet, skin) {
   const key = String(project || '');
   if (!key) return out;
   delete out[key];
+  if (PetArt.ORDER.includes(pet) && Object.keys(out).length >= PROJECT_LOOK_MAX) delete out[Object.keys(out)[0]]; // full: the oldest choice makes room
   if (PetArt.ORDER.includes(pet)) out[key] = { pet, skin: PetArt.SKIN_ORDER.includes(skin) ? skin : 'default' };
   return sanitizeProjectLooks(out);
 }

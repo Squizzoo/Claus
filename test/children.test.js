@@ -102,3 +102,11 @@ test('nestedAlertDecision: one alert for a child and the parent that relays it, 
   assert.equal(N.sanitize({ nested: 'nope' }).nested, 'child');
   assert.equal(N.DEFAULTS.nested, 'child');
 });
+
+test('calls that never got an answer do not stop the scanner from finding later children', () => {
+  const c = createChildren();
+  const orphans = Array.from({ length: 300 }, (_, i) => call(`orphan${i}`)).join('\n');
+  c.ingest(orphans);
+  c.ingest([call('late'), result('late', ID_A)].join('\n'));
+  assert.deepEqual([...c.ids()], [ID_A]);
+});

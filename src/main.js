@@ -494,8 +494,10 @@ let askingCtrl = false;
 /** Every 150 ms while click-through is on: is Ctrl held with the cursor on the pet? Then the pet becomes clickable. */
 async function pollClickThrough() {
   if (!settings.place.clickThrough || !petShown) return;
+  const onPet = cursorOnPet();
+  if (!onPet && !grabbedAt) return; // nothing to decide while the cursor is elsewhere (the 1 s tick keeps the rest right)
   updateClickThrough(store.snapshot()); // ends a grab as soon as the cursor has left
-  if (!clickThrough || askingCtrl || !cursorOnPet()) return;
+  if (!clickThrough || askingCtrl || !onPet) return;
   askingCtrl = true;
   try {
     if (await claudeWatcher().ctrl()) grab();
@@ -703,11 +705,20 @@ async function pollWsl() {
     const entries = [];
     let withHooks = 0;
     for (const distro of running) {
-      if (!wslHome.has(distro)) wslHome.set(distro, await wslLib.homeOf(distro));
+      if (!wslHome.get(distro)) {
+        const found = await wslLib.homeOf(distro); // a failed answer is not remembered: the distro may just have been starting
+        if (found) wslHome.set(distro, found);
+      }
       const home = wslHome.get(distro);
       if (!home) continue;
-      const pids = await wslLib.livePids(distro);
-      if (pids) entries.push(...readRegistry(wslLib.wslPath(distro, home, '.claude/sessions'), { alive: (pid) => pids.has(pid), domain: `wsl:${distro}` }));
+      // Look at the files first. Starting a process inside a distro (the pid check) keeps it from shutting down when idle, so it is only
+      // done while the distro has chats at all.
+      const dir = wslLib.wslPath(distro, home, '.claude/sessions');
+      const domain = `wsl:${distro}`;
+      if (readRegistry(dir, { alive: () => true, domain }).length) {
+        const pids = await wslLib.livePids(distro);
+        if (pids) entries.push(...readRegistry(dir, { alive: (pid) => pids.has(pid), domain }));
+      }
       if (hooksLib.status({ file: wslLib.wslPath(distro, home, '.claude/settings.json'), port: PORT }).complete) withHooks++;
     }
     const hooks = running.length ? `${withHooks} of ${running.length} running distro${running.length === 1 ? '' : 's'} have the hooks` : '';
@@ -880,6 +891,11 @@ async function chooseVersion(version, parent) {
   if (!entry || entry.relation === 'same' || !caps().updates) return;
   const older = entry.relation === 'older';
   const p = parent && !parent.isDestroyed() ? parent : null;
+  if (updater.state().status === 'downloading') {
+    const busy = { type: 'info', title: 'Claus', message: 'An update is downloading right now', detail: 'Wait until it is done, then choose the version again.' };
+    await (p ? dialog.showMessageBox(p, busy) : dialog.showMessageBox(busy));
+    return;
+  }
   const options = {
     type: 'question',
     title: 'Claus',
