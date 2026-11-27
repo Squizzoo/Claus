@@ -244,20 +244,26 @@ class SessionStore {
     if (next === null) return false;
     if (next === 'removed') return this.sessions.delete(id);
     const s = this._get(id);
+    const prevDoing = s.doing;
     s.lastHookAt = this.now();
     if (payload.cwd && !s.cwd) s.cwd = String(payload.cwd);
     if (!s.name) s.name = basename(s.cwd);
     let changed = this._set(s, next) || !existing;
-    // what the chat is doing: set when a tool starts or a prompt is sent (thinking), kept while its result comes back
-    if (next === 'working' && (payload.hook_event_name === 'PreToolUse' || payload.hook_event_name === 'UserPromptSubmit')) {
-      const doing = payload.hook_event_name === 'PreToolUse' ? activityOf(payload.tool_name) : 'think';
+    // What the chat is doing: thinking once a prompt is sent, then the kind of tool it ran last. The installed hooks send PreToolUse only for
+    // AskUserQuestion (hooks-install.js), so the tool comes from PostToolUse, which fires for every tool; a test keeps the two in step.
+    const event = payload.hook_event_name;
+    if (next === 'working' && (event === 'PreToolUse' || event === 'PostToolUse' || event === 'UserPromptSubmit') && !(event === 'PostToolUse' && payload.tool_name === 'AskUserQuestion')) {
+      const doing = event === 'UserPromptSubmit' ? 'think' : activityOf(payload.tool_name);
+      s.askedDoing = ''; // a real activity: nothing older is waiting to come back
       if (doing !== s.doing) {
         s.doing = doing;
         changed = true;
       }
     }
     // a tool that waited for your approval starts the moment you allow it: its PostToolUse comes back as 'working' with no PreToolUse in between
+    // and a question you answer gives back what the chat was doing before it asked
     if (next === 'approval') s.askedDoing = activityOf(payload.tool_name);
+    else if (next === 'question' && prevDoing) s.askedDoing = prevDoing;
     else if (next === 'working' && !s.doing && s.askedDoing) {
       s.doing = s.askedDoing;
       s.askedDoing = '';

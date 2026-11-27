@@ -433,9 +433,13 @@
   };
   const IDLE_GAP = [8000, 20000]; // wait between two actions, in ms
 
-  /** The name of the next idle action, never one the pet cannot do. */
-  function pickIdleAction(hasTail, rand = Math.random, prefer = []) {
-    const names = Object.keys(IDLE_ACTIONS).filter((n) => hasTail || !IDLE_ACTIONS[n].needsTail);
+  /** The name of the next idle action, never one the pet cannot do; `allowed` narrows the choice (a working pet, see props.js WORK_ACTIONS). */
+  function pickIdleAction(hasTail, rand = Math.random, prefer = [], allowed = null) {
+    let names = Object.keys(IDLE_ACTIONS).filter((n) => hasTail || !IDLE_ACTIONS[n].needsTail);
+    if (allowed) {
+      const narrowed = names.filter((n) => allowed.includes(n));
+      names = narrowed.length ? narrowed : names.filter((n) => n === 'look'); // a tail-less pet that may only wag still looks around
+    }
     const pool = names.flatMap((n) => (prefer.includes(n) ? [n, n, n] : [n])); // a preferred action is three times as likely
     return pool[Math.min(pool.length - 1, Math.floor(rand() * pool.length))];
   }
